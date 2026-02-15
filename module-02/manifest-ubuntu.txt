@@ -1,0 +1,31 @@
+# Docker Engine Offline Bundle Manifest
+# Created: 2026-02-14
+# Target OS: Ubuntu 22.04 LTS (Jammy)
+# Architecture: amd64
+# Docker Version: 24.0.7
+
+# Main Docker packages
+docker-ce=5:24.0.7-1~ubuntu.22.04~jammy
+docker-ce-cli=5:24.0.7-1~ubuntu.22.04~jammy
+containerd.io=1.6.26-1
+docker-buildx-plugin=0.12.0-1~ubuntu.22.04~jammy
+docker-compose-plugin=2.23.3-1~ubuntu.22.04~jammy
+docker-ce-rootless-extras=5:24.0.7-1~ubuntu.22.04~jammy
+
+# Core dependencies
+runc=1.1.10-1
+libseccomp2=2.5.3-2ubuntu2
+iptables=1.8.7-1ubuntu5
+pigz=2.6-1
+
+# Recommended packages
+apparmor=3.0.4-2ubuntu2
+ca-certificates=20230311ubuntu0.22.04.1
+git=1:2.34.1-1ubuntu1.10
+xz-utils=5.2.5-2ubuntu1
+
+# Optional troubleshooting tools
+vim=2:8.2.3995-1ubuntu2
+curl=7.81.0-1ubuntu1.15
+htop=3.0.5-7build2
+net-tools=1.60+git20181103.0eebece-1ubuntu5
