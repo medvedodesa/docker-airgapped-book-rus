@@ -1,0 +1,374 @@
+# secure-compose.yml
+# Production-ready Docker Compose with all security hardening
+# 
+# Usage: docker-compose -f secure-compose.yml up -d
+
+version: '3.8'
+
+services:
+  # ============================================
+  # Web Application Service
+  # ============================================
+  web:
+    # Use specific version, NEVER 'latest'
+    image: harbor.company.local/production/webapp:1.2.3
+    container_name: webapp-prod
+    
+    # ============================================
+    # USER SECURITY
+    # ============================================
+    # Run as non-root user
+    user: "1000:1000"
+    
+    # ============================================
+    # FILESYSTEM SECURITY
+    # ============================================
+    # Read-only root filesystem
+    read_only: true
+    
+    # Writable temporary filesystems
+    tmpfs:
+      - /tmp:size=100M,mode=1777,noexec,nosuid,nodev
+      - /var/run:size=10M,mode=755,noexec,nosuid,nodev
+      - /var/cache:size=50M,mode=755,noexec,nosuid,nodev
+    
+    # ============================================
+    # SECURITY OPTIONS
+    # ============================================
+    security_opt:
+      # Prevent privilege escalation
+      - no-new-privileges:true
+      
+      # AppArmor profile (Ubuntu/Debian)
+      - apparmor=docker-default
+      
+      # SELinux label (RHEL/CentOS)
+      # - label=type:svirt_apache_t
+      
+      # Custom seccomp profile
+      # - seccomp=/etc/docker/seccomp/web-profile.json
+    
+    # ============================================
+    # CAPABILITIES
+    # ============================================
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE  # Only if binding to ports < 1024
+      # Add other capabilities ONLY if absolutely required
+    
+    # ============================================
+    # RESOURCE LIMITS
+    # ============================================
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'       # Max 50% of one CPU core
+          memory: 512M       # Hard memory limit
+        reservations:
+          cpus: '0.25'       # Guaranteed CPU
+          memory: 256M       # Guaranteed memory
+    
+    # PID limit (prevent fork bombs)
+    pids_limit: 100
+    
+    # ============================================
+    # HEALTH CHECK
+    # ============================================
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    
+    # ============================================
+    # RESTART POLICY
+    # ============================================
+    restart: unless-stopped
+    
+    # ============================================
+    # LOGGING
+    # ============================================
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "production,webapp"
+    
+    # ============================================
+    # NETWORK
+    # ============================================
+    networks:
+      - frontend
+    
+    # ============================================
+    # PORTS
+    # ============================================
+    ports:
+      - "8080:8080"  # Expose only required ports
+    
+    # ============================================
+    # VOLUMES
+    # ============================================
+    volumes:
+      # Configuration (read-only)
+      - ./config/app.yml:/app/config/app.yml:ro
+      
+      # Data (writable, specific path)
+      - webapp_data:/app/data
+      
+      # Logs (external volume, not tmpfs)
+      - webapp_logs:/app/logs
+    
+    # ============================================
+    # ENVIRONMENT
+    # ============================================
+    environment:
+      # Application settings
+      - APP_ENV=production
+      - LOG_LEVEL=info
+      - PORT=8080
+      
+      # NEVER put secrets in environment!
+      # Use Docker secrets or external secret manager (Vault)
+    
+    # ============================================
+    # SECRETS (if using Docker Swarm)
+    # ============================================
+    # secrets:
+    #   - db_password
+    #   - api_key
+    
+    # ============================================
+    # DEPENDENCIES
+    # ============================================
+    depends_on:
+      - database
+
+
+  # ============================================
+  # Database Service
+  # ============================================
+  database:
+    image: harbor.company.local/production/postgres:15.3
+    container_name: postgres-prod
+    
+    # Non-root user
+    user: "999:999"  # postgres user
+    
+    # Read-only with exceptions
+    read_only: true
+    tmpfs:
+      - /tmp:size=100M,noexec,nosuid
+      - /run:size=10M,noexec,nosuid
+      - /run/postgresql:size=10M,noexec,nosuid
+    
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+      - apparmor=docker-default
+    
+    # Capabilities
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - SETGID
+      - SETUID
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    
+    pids_limit: 200
+    
+    # Health check
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 40s
+    
+    restart: unless-stopped
+    
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    
+    # Network (internal only, no external access)
+    networks:
+      - backend
+    
+    # Volumes
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    
+    environment:
+      - POSTGRES_DB=appdb
+      - POSTGRES_USER=appuser
+      # Password via secrets, not environment!
+      # - POSTGRES_PASSWORD_FILE=/run/secrets/db_password
+
+
+  # ============================================
+  # Redis Cache
+  # ============================================
+  cache:
+    image: harbor.company.local/production/redis:7.0-alpine
+    container_name: redis-cache
+    
+    user: "999:999"
+    read_only: true
+    
+    tmpfs:
+      - /tmp:size=50M,noexec,nosuid
+      - /data:size=100M  # Redis requires writable /data
+    
+    security_opt:
+      - no-new-privileges:true
+      - apparmor=docker-default
+    
+    cap_drop:
+      - ALL
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.10'
+          memory: 128M
+    
+    pids_limit: 50
+    
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    
+    restart: unless-stopped
+    
+    networks:
+      - backend
+    
+    # No external ports - internal only
+
+
+# ============================================
+# NETWORKS
+# ============================================
+networks:
+  frontend:
+    driver: bridge
+    internal: false  # Allows external connections
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+  
+  backend:
+    driver: bridge
+    internal: true   # No external access (database tier)
+    ipam:
+      config:
+        - subnet: 172.21.0.0/24
+
+
+# ============================================
+# VOLUMES
+# ============================================
+volumes:
+  webapp_data:
+    driver: local
+  
+  webapp_logs:
+    driver: local
+  
+  postgres_data:
+    driver: local
+
+
+# ============================================
+# SECRETS (Docker Swarm mode)
+# ============================================
+# secrets:
+#   db_password:
+#     external: true
+#   api_key:
+#     external: true
+
+
+# ============================================
+# USAGE INSTRUCTIONS
+# ============================================
+# 
+# 1. Deployment:
+#    docker-compose -f secure-compose.yml up -d
+# 
+# 2. Health check:
+#    docker-compose -f secure-compose.yml ps
+# 
+# 3. View logs:
+#    docker-compose -f secure-compose.yml logs -f web
+# 
+# 4. Update service:
+#    docker-compose -f secure-compose.yml pull web
+#    docker-compose -f secure-compose.yml up -d --no-deps web
+# 
+# 5. Stop:
+#    docker-compose -f secure-compose.yml down
+# 
+# 
+# ============================================
+# SECURITY CHECKLIST
+# ============================================
+# 
+# Before deployment, verify:
+# 
+# [ ] All images from trusted registry (Harbor)
+# [ ] Specific image versions (not 'latest')
+# [ ] All services run as non-root user
+# [ ] Read-only root filesystem enabled
+# [ ] All capabilities dropped except required
+# [ ] Resource limits configured
+# [ ] Health checks implemented
+# [ ] Secrets not in environment variables
+# [ ] Logs configured with rotation
+# [ ] Networks properly segmented
+# [ ] No unnecessary ports exposed
+# [ ] Security scanning completed
+# [ ] Backup strategy in place
+# 
+# 
+# ============================================
+# MONITORING
+# ============================================
+# 
+# Monitor these metrics:
+# 
+# - Container health status
+# - Resource usage (CPU, memory)
+# - Restart count
+# - Log errors
+# - Network traffic
+# 
+# Tools:
+# - docker stats
+# - docker-compose ps
+# - Prometheus + Grafana
+# - ELK stack for logs

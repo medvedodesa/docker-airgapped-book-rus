@@ -1,0 +1,56 @@
+#include <tunables/global>
+
+# AppArmor profile for Docker containers
+# Usage: 
+#   1. Copy to /etc/apparmor.d/docker-custom
+#   2. Edit paths and capabilities as needed
+#   3. Load: apparmor_parser -r /etc/apparmor.d/docker-custom
+#   4. Use: docker run --security-opt apparmor=docker-custom myimage
+
+profile docker-custom flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+
+  # Network permissions
+  network inet tcp,
+  network inet udp,
+  network inet6 tcp,
+  network inet6 udp,
+
+  # Required capabilities
+  capability chown,
+  capability dac_override,
+  capability setuid,
+  capability setgid,
+  capability net_bind_service,
+
+  # File system access
+  # Application files (read/write)
+  /app/** rw,
+  /data/** rw,
+  /tmp/** rw,
+  
+  # Configuration files (read-only)
+  /etc/** r,
+  
+  # Logs (write-only)
+  /var/log/** w,
+  
+  # Deny dangerous paths
+  deny /proc/sys/** wklx,
+  deny /sys/** wklx,
+  deny /dev/** wklx,
+  
+  # Allow specific devices if needed
+  # /dev/null rw,
+  # /dev/zero rw,
+  # /dev/random r,
+  # /dev/urandom r,
+
+  # Deny mount operations
+  deny mount,
+  deny umount,
+  deny pivot_root,
+
+  # Deny changing namespaces
+  deny ptrace,
+}
