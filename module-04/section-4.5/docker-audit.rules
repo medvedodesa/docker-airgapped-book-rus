@@ -1,0 +1,236 @@
+# /etc/audit/rules.d/docker.rules
+# Comprehensive auditd rules for Docker in air-gapped environments
+#
+# Load with: augenrules --load && systemctl restart auditd
+# Verify: auditctl -l | grep docker
+
+# ============================================
+# DOCKER DAEMON BINARIES
+# ============================================
+
+# Docker daemon
+-w /usr/bin/dockerd -p x -k docker_daemon
+
+# Docker client
+-w /usr/bin/docker -p x -k docker_client
+
+# Containerd daemon
+-w /usr/bin/containerd -p x -k docker_daemon
+
+# Containerd shim (container runtime)
+-w /usr/bin/containerd-shim -p x -k docker_runtime
+-w /usr/bin/containerd-shim-runc-v2 -p x -k docker_runtime
+
+# Runc (OCI runtime)
+-w /usr/bin/runc -p x -k docker_runtime
+
+# Docker init
+-w /usr/bin/docker-init -p x -k docker_daemon
+
+# Docker proxy
+-w /usr/bin/docker-proxy -p x -k docker_daemon
+
+# ============================================
+# DOCKER DATA DIRECTORIES
+# ============================================
+
+# Main Docker data directory
+-w /var/lib/docker -p wa -k docker_data
+
+# Container storage
+-w /var/lib/docker/containers -p wa -k docker_containers
+
+# Image storage
+-w /var/lib/docker/image -p wa -k docker_images
+
+# Volume storage
+-w /var/lib/docker/volumes -p wa -k docker_volumes
+
+# Network configuration
+-w /var/lib/docker/network -p wa -k docker_network
+
+# Build cache
+-w /var/lib/docker/buildkit -p wa -k docker_build
+
+# Containerd data
+-w /var/lib/containerd -p wa -k docker_data
+
+# ============================================
+# DOCKER CONFIGURATION
+# ============================================
+
+# Main configuration directory
+-w /etc/docker -p wa -k docker_config
+
+# Daemon configuration file
+-w /etc/docker/daemon.json -p wa -k docker_config
+
+# Docker environment file
+-w /etc/default/docker -p wa -k docker_config
+-w /etc/sysconfig/docker -p wa -k docker_config
+
+# Network configuration
+-w /etc/docker/network -p wa -k docker_network
+
+# Registry certificates
+-w /etc/docker/certs.d -p wa -k docker_certs
+
+# ============================================
+# SYSTEMD UNITS
+# ============================================
+
+# Docker service
+-w /lib/systemd/system/docker.service -p wa -k docker_systemd
+-w /usr/lib/systemd/system/docker.service -p wa -k docker_systemd
+
+# Docker socket
+-w /lib/systemd/system/docker.socket -p wa -k docker_systemd
+-w /usr/lib/systemd/system/docker.socket -p wa -k docker_systemd
+
+# Containerd service
+-w /lib/systemd/system/containerd.service -p wa -k docker_systemd
+-w /usr/lib/systemd/system/containerd.service -p wa -k docker_systemd
+
+# ============================================
+# DOCKER SOCKET
+# ============================================
+
+# Docker Unix socket (CRITICAL)
+-w /var/run/docker.sock -p wa -k docker_socket
+
+# Containerd socket
+-w /var/run/containerd/containerd.sock -p wa -k docker_socket
+
+# ============================================
+# DOCKER COMPOSE
+# ============================================
+
+# Docker Compose binary (if installed)
+-w /usr/bin/docker-compose -p x -k docker_compose
+-w /usr/local/bin/docker-compose -p x -k docker_compose
+
+# ============================================
+# KUBERNETES INTEGRATION (if applicable)
+# ============================================
+
+# CRI socket
+# -w /var/run/cri-dockerd.sock -p wa -k docker_socket
+
+# ============================================
+# REGISTRY CONFIGURATION
+# ============================================
+
+# Registry daemon (if running local registry)
+-w /etc/docker/registry -p wa -k docker_registry
+
+# ============================================
+# MONITORING SPECIFIC OPERATIONS
+# ============================================
+
+# Note: The rules above use these keys:
+# - docker_daemon    : Docker daemon and service binaries
+# - docker_client    : Docker CLI usage
+# - docker_runtime   : Container runtime operations
+# - docker_data      : Data directory modifications
+# - docker_containers: Container-specific changes
+# - docker_images    : Image operations
+# - docker_volumes   : Volume operations
+# - docker_network   : Network changes
+# - docker_build     : Build operations
+# - docker_config    : Configuration changes
+# - docker_certs     : Certificate modifications
+# - docker_systemd   : Systemd unit changes
+# - docker_socket    : Socket access (MOST CRITICAL)
+# - docker_compose   : Docker Compose operations
+# - docker_registry  : Registry operations
+
+# ============================================
+# SEARCH AUDIT LOGS
+# ============================================
+
+# Examples of searching audit logs:
+#
+# All Docker events:
+#   ausearch -k docker_daemon -k docker_client -k docker_runtime
+#
+# Socket access (detect potential compromise):
+#   ausearch -k docker_socket -ts recent
+#
+# Configuration changes:
+#   ausearch -k docker_config -ts today
+#
+# Container operations:
+#   ausearch -k docker_containers -ts today
+#
+# Failed operations:
+#   ausearch -k docker_daemon --failed
+#
+# Specific user activity:
+#   ausearch -k docker_client -ui 1000
+#
+# Generate summary report:
+#   aureport -k docker_daemon --summary
+#
+# Real-time monitoring:
+#   ausearch -k docker_socket -i --start today --format text | tail -f
+
+# ============================================
+# PERFORMANCE NOTES
+# ============================================
+
+# These rules generate significant log volume
+# Ensure adequate disk space for /var/log/audit
+# Configure log rotation in /etc/audit/auditd.conf:
+#
+#   max_log_file = 100      # MB
+#   num_logs = 10           # Keep 10 files
+#   max_log_file_action = ROTATE
+
+# ============================================
+# COMPLIANCE NOTES
+# ============================================
+
+# These rules satisfy:
+# - CIS Docker Benchmark 1.2.1, 1.2.2
+# - PCI DSS Requirement 10 (Audit logging)
+# - SOC 2 CC6.1 (Logical access controls)
+# - NIST 800-53 AU-2 (Audit events)
+
+# ============================================
+# LOADING AND VERIFICATION
+# ============================================
+
+# 1. Copy this file to /etc/audit/rules.d/docker.rules
+#
+# 2. Load rules:
+#    augenrules --load
+#
+# 3. Restart auditd:
+#    systemctl restart auditd
+#
+# 4. Verify rules loaded:
+#    auditctl -l | grep docker
+#    Should show all rules
+#
+# 5. Test:
+#    docker ps
+#    ausearch -k docker_client -ts recent
+#    Should show the docker ps execution
+
+# ============================================
+# TROUBLESHOOTING
+# ============================================
+
+# Rules not loading:
+#   - Check syntax: auditctl -l
+#   - Check file permissions: ls -l /etc/audit/rules.d/docker.rules
+#   - Check auditd status: systemctl status auditd
+#
+# Too much log volume:
+#   - Reduce rule scope (e.g., only monitor critical paths)
+#   - Increase log retention limits
+#   - Setup log forwarding to external storage
+#
+# Performance impact:
+#   - Audit rules have minimal overhead
+#   - If concerned, monitor with: auditctl -s
