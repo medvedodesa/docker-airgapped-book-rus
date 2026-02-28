@@ -1,0 +1,63 @@
+# Docker Security Risk Assessment Template
+# CSV format - Import into Excel/Google Sheets
+# 
+# Risk Score = Likelihood × Impact
+# Likelihood: 1=Low, 2=Medium, 3=High
+# Impact: 1=Low, 2=Medium, 3=High, 4=Critical
+
+Risk ID,Threat Description,Threat Actor,Attack Vector,Likelihood (1-3),Impact (1-4),Risk Score,Current Controls,Control Effectiveness,Residual Risk,Mitigation Plan,Owner,Due Date,Status
+T-01,Malicious Docker image introduced via USB,Insider/External,USB drive,3,4,12,"Image scanning,Manual review",Medium,6,"Implement Trivy scanning,Enforce Notary signing,USB port control",Security Team,2024-03-31,In Progress
+T-02,Privileged container escape to host,Compromised app,Container exploit,1,4,4,"Privileged containers restricted,Runtime monitoring",High,2,"Deploy Falco,Kernel hardening,Regular patching",DevOps Team,2024-02-28,Planned
+T-03,Insider abuse of Docker daemon access,Malicious insider,Direct daemon access,2,4,8,"RBAC,Audit logging",Medium,4,"2-person rule,Authorization plugin,MFA",Security Team,2024-04-30,Not Started
+T-04,Container resource exhaustion DoS,Bug/Misconfiguration,Resource consumption,2,3,6,"Some cgroups limits,Monitoring",Low,4,"Enforce limits on all containers,Automated alerting",DevOps Team,2024-03-15,In Progress
+T-05,Secrets exposed in container logs,Developer error,Log analysis,3,3,9,"No automated controls",Low,9,"Vault integration,Log sanitization,Secret scanning",DevOps Team,2024-05-31,Not Started
+T-06,Physical server theft,External threat,Physical access,1,3,3,"Locked datacenter,CCTV",High,1,"Full disk encryption,Tamper seals",Facilities,2024-06-30,Planned
+T-07,Unpatched vulnerability in base image,N/A,Software exploit,2,3,6,"Occasional scanning",Low,6,"Continuous vulnerability scanning,Automated updates",DevOps Team,2024-03-31,In Progress
+T-08,Docker socket mounted in container,Developer error,Configuration mistake,2,4,8,"Code review",Low,8,"Automated policy enforcement,CI/CD checks",DevOps Team,2024-02-28,Planned
+T-09,Container running as root,Developer error,Configuration mistake,3,2,6,"No enforcement",Low,6,"Enforce non-root in admission control,Image linting",DevOps Team,2024-04-15,Not Started
+T-10,Network traffic sniffing between containers,Compromised container,Network access,2,2,4,"Default Docker network",Low,4,"Network segmentation,Encryption (mTLS)",Network Team,2024-07-31,Not Started
+T-11,Credential theft from environment variables,Container compromise,Memory dump,2,3,6,"No secrets management",Low,6,"Vault integration,Remove env var secrets",Security Team,2024-05-15,Planned
+T-12,Kernel vulnerability exploitation,Attacker,Software exploit,1,4,4,"Regular patching",Medium,2,"Faster patch cycle,Kernel hardening",SysAdmin Team,2024-03-31,In Progress
+T-13,Configuration drift causing security gaps,Operational error,Human error,3,2,6,"Manual configuration",Low,6,"Configuration management (Ansible),GitOps",DevOps Team,2024-06-30,Not Started
+T-14,Supply chain compromise (pre-infected hardware),APT,Vendor compromise,1,4,4,"Vendor assessment",Low,4,"Hardware verification,Trusted suppliers only",Procurement,Ongoing,In Progress
+T-15,Social engineering for physical access,External/Insider,Human manipulation,1,3,3,"Security awareness,Badge system",Medium,2,"Enhanced training,Access logging",HR/Security,2024-04-30,In Progress
+
+# Instructions:
+# 1. Copy this file to risk-assessment.csv
+# 2. Import into spreadsheet software
+# 3. Customize threats for your environment
+# 4. Update likelihood/impact based on your controls
+# 5. Track mitigation progress
+# 6. Review and update quarterly
+
+# Risk Scoring Guide:
+# 
+# Likelihood:
+# 1 - Low: Unlikely to occur (< 10% chance)
+# 2 - Medium: Possible to occur (10-50% chance)
+# 3 - High: Likely to occur (> 50% chance)
+#
+# Impact:
+# 1 - Low: Minimal impact (minor disruption, no data loss)
+# 2 - Medium: Moderate impact (temporary outage, limited data exposure)
+# 3 - High: Significant impact (extended outage, data breach)
+# 4 - Critical: Severe impact (complete compromise, regulatory penalties)
+#
+# Risk Score Interpretation:
+# 1-2: Low Risk (Accept)
+# 3-4: Medium-Low Risk (Monitor)
+# 6-8: High Risk (Mitigate within 90 days)
+# 9-12: Critical Risk (Immediate action required)
+
+# Mitigation Status:
+# Not Started - Not yet begun
+# Planned - Scheduled with date
+# In Progress - Currently implementing
+# Complete - Fully implemented
+# Ongoing - Continuous process
+
+# Review Schedule:
+# - Weekly: Update status for active mitigations
+# - Monthly: Review high/critical risks
+# - Quarterly: Full risk assessment review
+# - Annually: Complete threat model update

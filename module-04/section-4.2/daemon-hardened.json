@@ -1,0 +1,205 @@
+# daemon-hardened.json
+# CIS-compliant Docker daemon configuration for production
+# Location: /etc/docker/daemon.json
+#
+# After editing, restart Docker:
+#   systemctl restart docker
+
+{
+  # ====================================
+  # NETWORK SECURITY
+  # ====================================
+  
+  # Disable inter-container communication (CIS 2.1)
+  # Containers cannot talk to each other unless explicitly linked
+  "icc": false,
+  
+  # Enable iptables for network isolation (CIS 2.3)
+  "iptables": true,
+  
+  # IP forwarding (required for container networking)
+  "ip-forward": true,
+  
+  # ====================================
+  # LOGGING
+  # ====================================
+  
+  # Logging driver (CIS 2.2)
+  "log-driver": "json-file",
+  
+  # Log rotation to prevent disk exhaustion
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3",
+    "labels": "production"
+  },
+  
+  # Log level (CIS 2.2)
+  "log-level": "info",
+  
+  # ====================================
+  # STORAGE
+  # ====================================
+  
+  # Storage driver (use overlay2 for modern kernels)
+  "storage-driver": "overlay2",
+  
+  # Data root (should be on separate partition per CIS 1.1.1)
+  "data-root": "/var/lib/docker",
+  
+  # ====================================
+  # SECURITY
+  # ====================================
+  
+  # User namespace remapping (CIS 2.6 - Level 2)
+  # IMPORTANT: This breaks some workflows, test thoroughly
+  # Uncomment to enable:
+  # "userns-remap": "dockremap",
+  
+  # Enable live restore (CIS 2.5)
+  # Keeps containers running during daemon downtime
+  "live-restore": true,
+  
+  # Disable legacy registry v1 (security best practice)
+  "disable-legacy-registry": true,
+  
+  # No insecure registries (CIS 2.4)
+  # In air-gap, use proper TLS for Harbor, not insecure mode
+  # "insecure-registries": [],
+  
+  # ====================================
+  # DAEMON ENDPOINT
+  # ====================================
+  
+  # CRITICAL: Never expose Docker daemon on network without TLS
+  # Only use Unix socket or TLS-protected TCP
+  # "hosts": ["unix:///var/run/docker.sock"],
+  
+  # If remote access needed (NOT recommended), use TLS:
+  # "hosts": ["unix:///var/run/docker.sock", "tcp://0.0.0.0:2376"],
+  # "tls": true,
+  # "tlsverify": true,
+  # "tlscacert": "/etc/docker/ca.pem",
+  # "tlscert": "/etc/docker/server-cert.pem",
+  # "tlskey": "/etc/docker/server-key.pem",
+  
+  # ====================================
+  # RESOURCE MANAGEMENT
+  # ====================================
+  
+  # Default ulimits for all containers
+  "default-ulimits": {
+    "nofile": {
+      "Name": "nofile",
+      "Hard": 64000,
+      "Soft": 64000
+    },
+    "nproc": {
+      "Name": "nproc",
+      "Hard": 16384,
+      "Soft": 16384
+    }
+  },
+  
+  # Default runtime (runc)
+  "default-runtime": "runc",
+  
+  # ====================================
+  # CONTENT TRUST (Optional)
+  # ====================================
+  
+  # Enforced via environment variables:
+  # DOCKER_CONTENT_TRUST=1
+  # DOCKER_CONTENT_TRUST_SERVER=https://harbor.company.local:4443
+  
+  # ====================================
+  # MONITORING & METRICS
+  # ====================================
+  
+  # Metrics endpoint for Prometheus
+  "metrics-addr": "127.0.0.1:9323",
+  "experimental": true,
+  
+  # ====================================
+  # AUTHORIZATION (Optional but Recommended)
+  # ====================================
+  
+  # Authorization plugin for policy-based access control
+  # Example using OPA (Open Policy Agent):
+  # "authorization-plugins": ["opa-docker-authz"],
+  
+  # ====================================
+  # REGISTRY MIRRORS (Air-Gap)
+  # ====================================
+  
+  # Internal Harbor as registry mirror
+  "registry-mirrors": [
+    "https://harbor.company.local"
+  ],
+  
+  # ====================================
+  # ADDITIONAL SECURITY OPTIONS
+  # ====================================
+  
+  # Enable user namespace by default (if userns-remap enabled)
+  # "userns-remap": "default",
+  
+  # Seccomp profile (default is fine, or specify custom)
+  # "seccomp-profile": "/etc/docker/seccomp.json",
+  
+  # SELinux enabled (distribution-specific)
+  "selinux-enabled": true,
+  
+  # ====================================
+  # PRODUCTION NOTES
+  # ====================================
+  
+  # 1. User namespace remapping (userns-remap):
+  #    - Adds security but may break volume permissions
+  #    - Test in staging before production
+  #    - Requires /etc/subuid and /etc/subgid configuration
+  
+  # 2. Live restore:
+  #    - Keeps containers running during daemon restart
+  #    - Essential for production uptime
+  
+  # 3. ICC disabled:
+  #    - Containers isolated by default
+  #    - Use --link or custom networks for communication
+  
+  # 4. Log rotation:
+  #    - Prevents disk exhaustion from logs
+  #    - Monitor disk usage regularly
+  
+  # 5. TLS for remote access:
+  #    - NEVER expose daemon without TLS
+  #    - Prefer Unix socket over TCP
+  
+  # 6. Authorization plugin:
+  #    - Recommended for multi-user environments
+  #    - Implement policy-based access control
+  
+  # 7. Registry mirrors:
+  #    - Point to internal Harbor in air-gap
+  #    - Ensures all pulls go through controlled registry
+  
+  # ====================================
+  # VALIDATION
+  # ====================================
+  
+  # After editing this file:
+  # 1. Validate JSON syntax:
+  #    jq . /etc/docker/daemon.json
+  
+  # 2. Restart Docker:
+  #    systemctl restart docker
+  
+  # 3. Verify settings:
+  #    docker info
+  
+  # 4. Check logs for errors:
+  #    journalctl -u docker -n 50
+  
+  # 5. Test container creation:
+  #    docker run --rm hello-world
+}
