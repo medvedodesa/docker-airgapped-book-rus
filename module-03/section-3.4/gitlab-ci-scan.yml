@@ -1,0 +1,170 @@
+# GitLab CI/CD Pipeline with Harbor Vulnerability Scanning
+# File: .gitlab-ci.yml
+#
+# This pipeline:
+# 1. Builds Docker image
+# 2. Pushes to Harbor
+# 3. Waits for vulnerability scan
+# 4. Checks scan results
+# 5. Blocks deployment if critical/high CVE found
+
+stages:
+  - build
+  - scan
+  - deploy
+
+variables:
+  HARBOR_URL: "harbor.company.local"
+  HARBOR_PROJECT: "myproject"
+  IMAGE_NAME: "$HARBOR_URL/$HARBOR_PROJECT/$CI_PROJECT_NAME"
+  IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
+  # Vulnerability thresholds
+  MAX_CRITICAL: 0
+  MAX_HIGH: 0
+
+# Build Docker image
+build:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind
+  before_script:
+    - echo "$HARBOR_PASSWORD" | docker login $HARBOR_URL -u $HARBOR_USER --password-stdin
+  script:
+    - docker build -t $IMAGE_NAME:$IMAGE_TAG .
+    - docker tag $IMAGE_NAME:$IMAGE_TAG $IMAGE_NAME:latest
+    - docker push $IMAGE_NAME:$IMAGE_TAG
+    - docker push $IMAGE_NAME:latest
+  only:
+    - branches
+    - tags
+
+# Scan for vulnerabilities
+vulnerability-scan:
+  stage: scan
+  image: curlimages/curl:latest
+  script:
+    - echo "Waiting for Harbor to scan image..."
+    - |
+      # Wait for scan to complete (max 10 minutes)
+      for i in $(seq 1 60); do
+        SCAN_STATUS=$(curl -s -u $HARBOR_USER:$HARBOR_PASSWORD \
+          "https://$HARBOR_URL/api/v2.0/projects/$HARBOR_PROJECT/repositories/$CI_PROJECT_NAME/artifacts/$IMAGE_TAG" | \
+          jq -r '.scan_overview."application/vnd.scanner.adapter.vuln.report.harbor+json; version=1.0".scan_status // "Not Started"')
+        
+        echo "Scan status: $SCAN_STATUS (attempt $i/60)"
+        
+        if [ "$SCAN_STATUS" == "Success" ]; then
+          echo "Scan completed successfully"
+          break
+        elif [ "$SCAN_STATUS" == "Error" ]; then
+          echo "ERROR: Scan failed"
+          exit 1
+        fi
+        
+        sleep 10
+      done
+      
+      if [ "$SCAN_STATUS" != "Success" ]; then
+        echo "ERROR: Scan did not complete in time"
+        exit 1
+      fi
+    
+    - echo "Retrieving scan results..."
+    - |
+      SCAN_RESULT=$(curl -s -u $HARBOR_USER:$HARBOR_PASSWORD \
+        "https://$HARBOR_URL/api/v2.0/projects/$HARBOR_PROJECT/repositories/$CI_PROJECT_NAME/artifacts/$IMAGE_TAG")
+      
+      CRITICAL=$(echo $SCAN_RESULT | jq -r '.scan_overview."application/vnd.scanner.adapter.vuln.report.harbor+json; version=1.0".summary.critical // 0')
+      HIGH=$(echo $SCAN_RESULT | jq -r '.scan_overview."application/vnd.scanner.adapter.vuln.report.harbor+json; version=1.0".summary.high // 0')
+      MEDIUM=$(echo $SCAN_RESULT | jq -r '.scan_overview."application/vnd.scanner.adapter.vuln.report.harbor+json; version=1.0".summary.medium // 0')
+      LOW=$(echo $SCAN_RESULT | jq -r '.scan_overview."application/vnd.scanner.adapter.vuln.report.harbor+json; version=1.0".summary.low // 0')
+      
+      echo "=========================================="
+      echo "Vulnerability Scan Results"
+      echo "=========================================="
+      echo "Critical: $CRITICAL"
+      echo "High:     $HIGH"
+      echo "Medium:   $MEDIUM"
+      echo "Low:      $LOW"
+      echo "=========================================="
+      
+      # Check against thresholds
+      if [ "$CRITICAL" -gt "$MAX_CRITICAL" ]; then
+        echo "ERROR: Image has $CRITICAL critical vulnerabilities (max allowed: $MAX_CRITICAL)"
+        echo "Review vulnerabilities in Harbor UI:"
+        echo "https://$HARBOR_URL/harbor/projects/$HARBOR_PROJECT/repositories/$CI_PROJECT_NAME/artifacts-tab/artifacts/$IMAGE_TAG"
+        exit 1
+      fi
+      
+      if [ "$HIGH" -gt "$MAX_HIGH" ]; then
+        echo "ERROR: Image has $HIGH high vulnerabilities (max allowed: $MAX_HIGH)"
+        echo "Review vulnerabilities in Harbor UI:"
+        echo "https://$HARBOR_URL/harbor/projects/$HARBOR_PROJECT/repositories/$CI_PROJECT_NAME/artifacts-tab/artifacts/$IMAGE_TAG"
+        exit 1
+      fi
+      
+      echo "✓ Image passed vulnerability scan"
+  dependencies:
+    - build
+  only:
+    - branches
+    - tags
+
+# Deploy to staging
+deploy-staging:
+  stage: deploy
+  image: bitnami/kubectl:latest
+  script:
+    - kubectl config use-context staging
+    - kubectl set image deployment/$CI_PROJECT_NAME $CI_PROJECT_NAME=$IMAGE_NAME:$IMAGE_TAG
+    - kubectl rollout status deployment/$CI_PROJECT_NAME
+  environment:
+    name: staging
+    url: https://staging.company.local
+  dependencies:
+    - vulnerability-scan
+  only:
+    - develop
+
+# Deploy to production
+deploy-production:
+  stage: deploy
+  image: bitnami/kubectl:latest
+  script:
+    - kubectl config use-context production
+    - kubectl set image deployment/$CI_PROJECT_NAME $CI_PROJECT_NAME=$IMAGE_NAME:$IMAGE_TAG
+    - kubectl rollout status deployment/$CI_PROJECT_NAME
+  environment:
+    name: production
+    url: https://app.company.local
+  dependencies:
+    - vulnerability-scan
+  only:
+    - main
+  when: manual  # Require manual approval for production
+
+# NOTES:
+#
+# 1. Required CI/CD Variables:
+#    - HARBOR_USER: Harbor username (e.g., admin or robot account)
+#    - HARBOR_PASSWORD: Harbor password (set as protected variable)
+#
+# 2. Customize thresholds:
+#    MAX_CRITICAL: 0  # Block any critical vulnerabilities
+#    MAX_HIGH: 0      # Block any high vulnerabilities
+#    MAX_HIGH: 5      # Allow up to 5 high vulnerabilities
+#
+# 3. Robot Account (recommended):
+#    Create robot account in Harbor for CI/CD:
+#    - Projects → [Project] → Robot Accounts → New Robot Account
+#    - Name: gitlab-ci
+#    - Expiration: 365 days
+#    - Permissions: Pull, Push
+#    - Use robot account credentials in CI/CD variables
+#
+# 4. Vulnerability Report URL:
+#    Users can click the link in failed job to review detailed CVE list
+#
+# 5. Manual approval:
+#    Production deployment requires manual trigger for safety

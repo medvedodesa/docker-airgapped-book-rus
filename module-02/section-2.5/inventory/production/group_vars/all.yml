@@ -1,0 +1,28 @@
+---
+# Global variables for all hosts
+# File: inventory/production/group_vars/all.yml
+
+# DNS Configuration
+dns_servers:
+  - 10.20.30.10
+  - 10.20.30.11
+
+dns_search_domains:
+  - company.local
+
+# NTP Configuration
+ntp_servers:
+  - ntp1.company.local
+  - ntp2.company.local
+  - ntp3.company.local
+
+# Internal CA
+ca_cert_path: files/ca-chain.cert.pem
+
+# Package Repositories
+apt_mirror_url: http://apt-mirror.company.local
+yum_mirror_url: http://yum-mirror.company.local
+
+# Harbor Registry
+harbor_url: harbor.company.local
+harbor_insecure: false

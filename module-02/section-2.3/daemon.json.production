@@ -1,0 +1,45 @@
+{
+  "exec-opts": ["native.cgroupdriver=systemd"],
+  
+  "log-driver": "local",
+  "log-opts": {
+    "max-size": "50m",
+    "max-file": "5",
+    "compress": "true"
+  },
+  
+  "storage-driver": "overlay2",
+  "storage-opts": [
+    "overlay2.override_kernel_check=true"
+  ],
+  
+  "dns": ["10.20.30.10", "10.20.30.11", "10.20.30.12"],
+  "dns-search": ["company.local"],
+  
+  "default-address-pools": [
+    {
+      "base": "172.17.0.0/12",
+      "size": 24
+    }
+  ],
+  
+  "userland-proxy": false,
+  
+  "live-restore": true,
+  
+  "max-concurrent-downloads": 3,
+  "max-concurrent-uploads": 5,
+  
+  "default-ulimits": {
+    "nofile": {
+      "Name": "nofile",
+      "Hard": 64000,
+      "Soft": 64000
+    }
+  },
+  
+  "icc": false,
+  
+  "data-root": "/var/lib/docker",
+  "insecure-registries": []
+}

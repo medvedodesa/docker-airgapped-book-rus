@@ -1,0 +1,214 @@
+# GitLab CI/CD Pipeline with Image Signing
+# File: .gitlab-ci.yml
+#
+# This pipeline demonstrates both Notary and Cosign signing methods
+
+stages:
+  - build
+  - sign
+  - verify
+  - deploy
+
+variables:
+  HARBOR_URL: "harbor.company.local"
+  HARBOR_PROJECT: "myproject"
+  IMAGE_NAME: "$HARBOR_URL/$HARBOR_PROJECT/$CI_PROJECT_NAME"
+  IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
+  # Choose signing method: notary or cosign
+  SIGNING_METHOD: "notary"
+
+# Build Docker image
+build:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind
+  before_script:
+    - echo "$HARBOR_PASSWORD" | docker login $HARBOR_URL -u $HARBOR_USER --password-stdin
+  script:
+    - docker build -t $IMAGE_NAME:$IMAGE_TAG .
+    - docker tag $IMAGE_NAME:$IMAGE_TAG $IMAGE_NAME:latest
+    
+    # Push WITHOUT signing (signing happens in next stage)
+    - export DOCKER_CONTENT_TRUST=0
+    - docker push $IMAGE_NAME:$IMAGE_TAG
+    - docker push $IMAGE_NAME:latest
+  only:
+    - branches
+    - tags
+
+# Sign with Notary
+sign-notary:
+  stage: sign
+  image: docker:latest
+  services:
+    - docker:dind
+  before_script:
+    - echo "$HARBOR_PASSWORD" | docker login $HARBOR_URL -u $HARBOR_USER --password-stdin
+    
+    # Setup Notary keys
+    - mkdir -p ~/.docker/trust/private
+    - echo "$DOCKER_CONTENT_TRUST_ROOT_PASSPHRASE" > /tmp/root_passphrase
+    - echo "$DOCKER_CONTENT_TRUST_REPOSITORY_PASSPHRASE" > /tmp/repo_passphrase
+    
+    # Import signing keys from CI/CD variables
+    - echo "$DOCKER_TRUST_ROOT_KEY" | base64 -d > ~/.docker/trust/private/root.key
+    - echo "$DOCKER_TRUST_REPOSITORY_KEY" | base64 -d > ~/.docker/trust/private/repo.key
+    - chmod 600 ~/.docker/trust/private/*.key
+  script:
+    # Enable Content Trust
+    - export DOCKER_CONTENT_TRUST=1
+    - export DOCKER_CONTENT_TRUST_SERVER=https://$HARBOR_URL:4443
+    - export DOCKER_CONTENT_TRUST_ROOT_PASSPHRASE=$(cat /tmp/root_passphrase)
+    - export DOCKER_CONTENT_TRUST_REPOSITORY_PASSPHRASE=$(cat /tmp/repo_passphrase)
+    
+    # Pull unsigned image
+    - export DOCKER_CONTENT_TRUST=0
+    - docker pull $IMAGE_NAME:$IMAGE_TAG
+    
+    # Re-push with signing
+    - export DOCKER_CONTENT_TRUST=1
+    - docker push $IMAGE_NAME:$IMAGE_TAG
+    
+    echo "Image signed with Notary"
+  only:
+    - main
+  when: manual
+  rules:
+    - if: '$SIGNING_METHOD == "notary"'
+
+# Sign with Cosign
+sign-cosign:
+  stage: sign
+  image: gcr.io/projectsigstore/cosign:latest
+  before_script:
+    - echo "$HARBOR_PASSWORD" | docker login $HARBOR_URL -u $HARBOR_USER --password-stdin
+    
+    # Setup Cosign key
+    - echo "$COSIGN_PRIVATE_KEY" | base64 -d > cosign.key
+    - export COSIGN_PASSWORD="$COSIGN_PASSWORD"
+  script:
+    # Sign image
+    - cosign sign --key cosign.key $IMAGE_NAME:$IMAGE_TAG
+    - cosign sign --key cosign.key $IMAGE_NAME:latest
+    
+    - echo "Image signed with Cosign"
+  only:
+    - main
+  when: manual
+  rules:
+    - if: '$SIGNING_METHOD == "cosign"'
+
+# Verify Notary signature
+verify-notary:
+  stage: verify
+  image: docker:latest
+  script:
+    # Enable Content Trust
+    - export DOCKER_CONTENT_TRUST=1
+    - export DOCKER_CONTENT_TRUST_SERVER=https://$HARBOR_URL:4443
+    
+    # Verify by pulling with Content Trust enabled
+    - echo "$HARBOR_PASSWORD" | docker login $HARBOR_URL -u $HARBOR_USER --password-stdin
+    - docker pull $IMAGE_NAME:$IMAGE_TAG
+    
+    # Show signature details
+    - docker trust inspect $IMAGE_NAME:$IMAGE_TAG --pretty
+    
+    - echo "Notary signature verified"
+  only:
+    - main
+  rules:
+    - if: '$SIGNING_METHOD == "notary"'
+
+# Verify Cosign signature
+verify-cosign:
+  stage: verify
+  image: gcr.io/projectsigstore/cosign:latest
+  script:
+    # Get public key
+    - echo "$COSIGN_PUBLIC_KEY" | base64 -d > cosign.pub
+    
+    # Verify signature
+    - cosign verify --key cosign.pub $IMAGE_NAME:$IMAGE_TAG
+    
+    - echo "Cosign signature verified"
+  only:
+    - main
+  rules:
+    - if: '$SIGNING_METHOD == "cosign"'
+
+# Deploy to staging
+deploy-staging:
+  stage: deploy
+  image: bitnami/kubectl:latest
+  script:
+    - kubectl config use-context staging
+    - kubectl set image deployment/$CI_PROJECT_NAME $CI_PROJECT_NAME=$IMAGE_NAME:$IMAGE_TAG
+    - kubectl rollout status deployment/$CI_PROJECT_NAME
+  environment:
+    name: staging
+  dependencies:
+    - verify-notary
+    - verify-cosign
+  only:
+    - develop
+
+# Deploy to production (requires signature verification)
+deploy-production:
+  stage: deploy
+  image: bitnami/kubectl:latest
+  script:
+    - kubectl config use-context production
+    - kubectl set image deployment/$CI_PROJECT_NAME $CI_PROJECT_NAME=$IMAGE_NAME:$IMAGE_TAG
+    - kubectl rollout status deployment/$CI_PROJECT_NAME
+  environment:
+    name: production
+  dependencies:
+    - verify-notary
+    - verify-cosign
+  only:
+    - main
+  when: manual
+
+# CI/CD Variables Required:
+#
+# For Notary:
+#   HARBOR_USER: Harbor username
+#   HARBOR_PASSWORD: Harbor password
+#   DOCKER_TRUST_ROOT_KEY: Base64-encoded root key
+#   DOCKER_TRUST_REPOSITORY_KEY: Base64-encoded repository key
+#   DOCKER_CONTENT_TRUST_ROOT_PASSPHRASE: Root key passphrase
+#   DOCKER_CONTENT_TRUST_REPOSITORY_PASSPHRASE: Repository key passphrase
+#
+# For Cosign:
+#   HARBOR_USER: Harbor username
+#   HARBOR_PASSWORD: Harbor password
+#   COSIGN_PRIVATE_KEY: Base64-encoded private key
+#   COSIGN_PUBLIC_KEY: Base64-encoded public key
+#   COSIGN_PASSWORD: Private key password
+#
+# Setup Instructions:
+#
+# 1. Generate and export keys:
+#
+#    Notary:
+#      # On local machine with keys
+#      cat ~/.docker/trust/private/root.key | base64 -w 0
+#      cat ~/.docker/trust/private/repo.key | base64 -w 0
+#
+#    Cosign:
+#      cat ~/.cosign/cosign.key | base64 -w 0
+#      cat ~/.cosign/cosign.pub | base64 -w 0
+#
+# 2. Add to GitLab CI/CD Variables:
+#    Settings → CI/CD → Variables
+#    - Type: Variable
+#    - Protected: Yes
+#    - Masked: Yes (for passwords/keys)
+#
+# 3. Test pipeline:
+#    - Push to develop branch (auto-sign disabled)
+#    - Push to main branch (triggers manual sign job)
+#    - Verify signature in verify stage
+#    - Deploy only succeeds if signature valid

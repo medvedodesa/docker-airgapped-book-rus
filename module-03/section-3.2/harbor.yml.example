@@ -1,0 +1,217 @@
+# Harbor Configuration File (Air-Gapped Environment)
+# Version: 2.10.0
+# 
+# This is an example configuration for Harbor in air-gapped environment.
+# Copy to harbor.yml and customize for your environment.
+
+# REQUIRED: The hostname or FQDN of the Harbor server
+# This must match the DNS record and TLS certificate CN/SAN
+hostname: harbor.company.local
+
+# HTTP configuration (optional, redirects to HTTPS)
+http:
+  port: 80
+
+# HTTPS configuration (REQUIRED for production)
+https:
+  port: 443
+  # Path to TLS certificate and private key
+  # These should be created using internal CA (see Module 2, Section 2.4.3)
+  certificate: /data/cert/harbor.company.local.cert.pem
+  private_key: /data/cert/harbor.company.local.key.pem
+
+# Harbor admin password
+# IMPORTANT: Change this immediately after installation!
+harbor_admin_password: Harbor12345!
+
+# DATABASE configuration
+database:
+  # Password for PostgreSQL database
+  # Only used if using embedded PostgreSQL
+  password: DatabasePassword123!
+  # Maximum idle connections
+  max_idle_conns: 100
+  # Maximum open connections
+  max_open_conns: 900
+
+# DATA VOLUME location
+# All Harbor data will be stored here
+# Ensure this has sufficient disk space (200GB - 2TB)
+data_volume: /data/harbor
+
+# TRIVY (vulnerability scanner) configuration
+trivy:
+  # Ignore unfixed vulnerabilities
+  ignore_unfixed: false
+  
+  # CRITICAL for air-gap: Skip automatic database updates
+  # Trivy DB must be updated manually in air-gap
+  skip_update: true
+  
+  # Enable offline scanning
+  offline_scan: true
+  
+  # Skip insecure registry
+  insecure: false
+  
+  # GitHub token (not needed in air-gap)
+  github_token: ""
+
+# JOB SERVICE configuration
+jobservice:
+  # Maximum number of concurrent job workers
+  max_job_workers: 10
+
+# NOTIFICATION configuration (webhooks)
+notification:
+  # Maximum number of retry attempts for webhooks
+  webhook_job_max_retry: 3
+
+# LOGGING configuration
+log:
+  # Log level: debug, info, warning, error, fatal
+  level: info
+  
+  # Local log retention
+  local:
+    # Number of log files to rotate
+    rotate_count: 50
+    # Maximum size of each log file
+    rotate_size: 200M
+    # Location where logs are stored
+    location: /var/log/harbor
+
+# PROXY configuration (usually not needed in pure air-gap)
+# Uncomment if you have outbound proxy for specific components
+# proxy:
+#   http_proxy: http://proxy.company.local:3128
+#   https_proxy: http://proxy.company.local:3128
+#   no_proxy: localhost,127.0.0.1,.company.local
+#   components:
+#     - core
+#     - jobservice
+#     - trivy
+
+# EXTERNAL DATABASE configuration (recommended for HA)
+# Uncomment to use external PostgreSQL instead of embedded
+# external_database:
+#   harbor:
+#     host: postgres.company.local
+#     port: 5432
+#     db_name: harbor
+#     username: harbor
+#     password: HarborDBPassword123!
+#     ssl_mode: disable
+#     max_idle_conns: 50
+#     max_open_conns: 1000
+#   notary_signer:
+#     host: postgres.company.local
+#     port: 5432
+#     db_name: notary_signer
+#     username: harbor
+#     password: HarborDBPassword123!
+#     ssl_mode: disable
+#   notary_server:
+#     host: postgres.company.local
+#     port: 5432
+#     db_name: notary_server
+#     username: harbor
+#     password: HarborDBPassword123!
+#     ssl_mode: disable
+
+# EXTERNAL REDIS configuration (recommended for HA)
+# Uncomment to use external Redis instead of embedded
+# external_redis:
+#   # Single Redis
+#   host: redis.company.local:6379
+#   password: RedisPassword123!
+#   
+#   # Or Redis Sentinel (for HA)
+#   # sentinel_master_set: mymaster
+#   # host: sentinel1.company.local:26379,sentinel2.company.local:26379,sentinel3.company.local:26379
+#   
+#   # Database indexes
+#   registry_db_index: 1
+#   jobservice_db_index: 2
+#   chartmuseum_db_index: 3
+#   trivy_db_index: 5
+
+# STORAGE BACKEND configuration
+# By default, Harbor uses filesystem storage
+# For HA deployments, use S3-compatible object storage
+
+# storage_service:
+#   # S3-compatible storage (MinIO, Ceph, etc.)
+#   s3:
+#     accesskey: <access-key>
+#     secretkey: <secret-key>
+#     region: us-east-1
+#     regionendpoint: http://minio.company.local:9000
+#     bucket: harbor
+#     encrypt: false
+#     secure: false
+#     v4auth: true
+#     chunksize: 5242880
+#     storageclass: STANDARD
+#     multipartcopychunksize: 33554432
+#     multipartcopymaxconcurrency: 100
+#     multipartcopythresholdsize: 33554432
+
+# UAA authentication (optional)
+# For integrating with Cloud Foundry UAA
+# uaa:
+#   endpoint: https://uaa.company.local
+#   client_id: harbor
+#   client_secret: secret
+#   verify_cert: true
+
+# LDAP configuration (optional, for enterprise authentication)
+# auth_mode: ldap_auth  # Change from db_auth to ldap_auth
+# ldap:
+#   url: ldap://ldap.company.local:389
+#   base_dn: dc=company,dc=local
+#   uid: uid
+#   scope: 2  # 0: Base, 1: OneLevel, 2: Subtree
+#   timeout: 5
+#   verify_cert: false
+
+# OIDC configuration (optional, for SSO)
+# auth_mode: oidc_auth
+# oidc_name: KeyCloak
+# oidc_endpoint: https://keycloak.company.local/auth/realms/master
+# oidc_client_id: harbor
+# oidc_client_secret: <secret>
+# oidc_groups_claim: groups
+# oidc_scope: openid,profile,email
+# oidc_verify_cert: true
+
+# METRIC collection (Prometheus)
+metric:
+  enabled: true
+  port: 9090
+  path: /metrics
+
+# CACHE configuration
+cache:
+  enabled: true
+  expire_hours: 24
+
+# NOTES:
+# 1. For air-gap environments:
+#    - Set trivy.skip_update: true
+#    - Set trivy.offline_scan: true
+#    - Do not configure proxy (unless you have internal proxy)
+#    - Ensure TLS certificates are from internal CA
+#
+# 2. For HA deployments:
+#    - Use external_database (PostgreSQL cluster)
+#    - Use external_redis (Redis Sentinel)
+#    - Use storage_service.s3 (shared storage)
+#
+# 3. Security best practices:
+#    - Change all default passwords
+#    - Use strong passwords (20+ characters)
+#    - Enable HTTPS only (disable HTTP after testing)
+#    - Regularly update Trivy database
+#    - Enable audit logging
+#    - Configure LDAP/OIDC for centralized auth

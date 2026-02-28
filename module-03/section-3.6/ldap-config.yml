@@ -1,0 +1,228 @@
+# Harbor LDAP Configuration Example
+# File: ldap-config.yml
+#
+# This file shows LDAP integration configuration for Harbor
+# Copy relevant sections to harbor.yml
+
+# BASIC LDAP CONFIGURATION
+# =========================
+
+# Set authentication mode to LDAP
+auth_mode: ldap_auth
+
+ldap:
+  # LDAP server URL
+  # Use ldap:// for unencrypted or ldaps:// for SSL/TLS
+  url: ldap://ldap.company.local:389
+  # For LDAPS (encrypted):
+  # url: ldaps://ldap.company.local:636
+  
+  # LDAP bind credentials for searching users
+  # This account needs read access to user and group entries
+  search_dn: cn=harbor-service,ou=service-accounts,dc=company,dc=local
+  search_password: <service-account-password>
+  
+  # Base DN where user entries are located
+  base_dn: ou=users,dc=company,dc=local
+  
+  # LDAP filter for user search
+  # (objectClass=inetOrgPerson) is common
+  # Can be more specific: (&(objectClass=inetOrgPerson)(memberOf=cn=docker-users,ou=groups,dc=company,dc=local))
+  filter: (objectClass=inetOrgPerson)
+  
+  # Attribute used as username
+  # Common values: uid, sAMAccountName (Active Directory), cn
+  uid: uid
+  
+  # Search scope
+  # 0 = Base (only base DN)
+  # 1 = OneLevel (one level below base DN)
+  # 2 = Subtree (all levels below base DN)
+  scope: 2
+  
+  # Connection timeout (seconds)
+  timeout: 5
+  
+  # Verify LDAP server certificate (for LDAPS)
+  verify_cert: true
+
+# GROUP-BASED ACCESS CONTROL
+# ===========================
+
+ldap:
+  # ... (basic config above)
+  
+  # Base DN for group entries
+  group_base_dn: ou=groups,dc=company,dc=local
+  
+  # LDAP filter for group search
+  group_filter: (objectClass=groupOfNames)
+  
+  # Attribute used as group name
+  group_gid: cn
+  
+  # LDAP group whose members have Harbor admin privileges
+  # Members of this group will be Harbor system administrators
+  group_admin_dn: cn=harbor-admins,ou=groups,dc=company,dc=local
+  
+  # Attribute in user entry that contains group membership
+  # Common values: memberOf (Active Directory), gidNumber
+  group_membership_attribute: memberOf
+  
+  # Group search scope (same as user search scope)
+  group_scope: 2
+
+# ACTIVE DIRECTORY SPECIFIC
+# ==========================
+
+# For Active Directory, use these settings:
+ldap:
+  url: ldap://ad.company.local:389
+  search_dn: CN=Harbor Service,OU=Service Accounts,DC=company,DC=local
+  search_password: <password>
+  base_dn: OU=Users,DC=company,DC=local
+  filter: (&(objectClass=user)(objectCategory=person))
+  uid: sAMAccountName
+  scope: 2
+  
+  # AD-specific group settings
+  group_base_dn: OU=Groups,DC=company,DC=local
+  group_filter: (objectClass=group)
+  group_gid: cn
+  group_admin_dn: CN=Harbor Admins,OU=Groups,DC=company,DC=local
+  group_membership_attribute: memberOf
+  group_scope: 2
+
+# TESTING LDAP CONFIGURATION
+# ===========================
+
+# After configuring, restart Harbor:
+# cd /data/harbor && docker-compose restart
+
+# Test LDAP connection:
+# 1. Harbor Web UI → Administration → Configuration → Authentication
+# 2. Click "Test LDAP Server"
+# 3. Enter test user credentials
+
+# Test user login:
+# 1. Logout from Harbor
+# 2. Login with LDAP username and password
+# 3. Check if user is created in Harbor
+
+# TROUBLESHOOTING
+# ================
+
+# Enable debug logging for LDAP:
+log:
+  level: debug
+
+# Check Harbor core logs:
+# docker logs harbor-core | grep -i ldap
+
+# Common issues:
+# 1. Cannot connect to LDAP server
+#    - Check URL and port
+#    - Check firewall rules
+#    - Verify LDAP server is running
+#
+# 2. User not found
+#    - Verify base_dn is correct
+#    - Check filter matches user entries
+#    - Verify uid attribute is correct
+#
+# 3. Authentication failed
+#    - User password is wrong
+#    - Account might be locked in LDAP
+#    - Check user's DN exists in base_dn
+#
+# 4. Group membership not working
+#    - Verify group_base_dn is correct
+#    - Check group_membership_attribute
+#    - Ensure user has memberOf attribute
+
+# SECURITY BEST PRACTICES
+# ========================
+
+# 1. Use LDAPS (encrypted connection)
+#    url: ldaps://ldap.company.local:636
+#    verify_cert: true
+
+# 2. Create dedicated service account
+#    - Minimal permissions (read-only on users/groups)
+#    - Strong password
+#    - Regular password rotation
+
+# 3. Use specific LDAP filters
+#    - Limit to specific organizational units
+#    - Exclude disabled accounts
+#    Example: (&(objectClass=inetOrgPerson)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))
+
+# 4. Implement group-based admin access
+#    - Don't make all LDAP users Harbor admins
+#    - Use group_admin_dn to limit admin access
+
+# 5. Regular audit
+#    - Review who has admin access
+#    - Check for orphaned accounts
+#    - Verify group memberships
+
+# EXAMPLE: OpenLDAP
+# ==================
+
+auth_mode: ldap_auth
+ldap:
+  url: ldap://openldap.company.local:389
+  search_dn: cn=admin,dc=company,dc=local
+  search_password: admin_password
+  base_dn: ou=people,dc=company,dc=local
+  filter: (objectClass=inetOrgPerson)
+  uid: uid
+  scope: 2
+  group_base_dn: ou=groups,dc=company,dc=local
+  group_filter: (objectClass=groupOfNames)
+  group_gid: cn
+  group_admin_dn: cn=harbor-admins,ou=groups,dc=company,dc=local
+  group_membership_attribute: memberOf
+
+# EXAMPLE: FreeIPA
+# ==================
+
+auth_mode: ldap_auth
+ldap:
+  url: ldap://ipa.company.local:389
+  search_dn: uid=harbor-service,cn=sysaccounts,cn=etc,dc=company,dc=local
+  search_password: service_password
+  base_dn: cn=users,cn=accounts,dc=company,dc=local
+  filter: (objectClass=person)
+  uid: uid
+  scope: 2
+  group_base_dn: cn=groups,cn=accounts,dc=company,dc=local
+  group_filter: (objectClass=groupOfNames)
+  group_gid: cn
+  group_admin_dn: cn=harbor-admins,cn=groups,cn=accounts,dc=company,dc=local
+  group_membership_attribute: memberOf
+
+# MIGRATION FROM LOCAL AUTH TO LDAP
+# ==================================
+
+# 1. Backup existing Harbor database
+#    docker exec harbor-db pg_dump -U postgres harbor > harbor_backup.sql
+
+# 2. Configure LDAP in harbor.yml
+#    auth_mode: ldap_auth
+#    ldap: { ... }
+
+# 3. Restart Harbor
+#    docker-compose restart
+
+# 4. Test LDAP login with admin account
+#    - Verify admin can login with LDAP credentials
+
+# 5. Existing local users remain in database
+#    - They can no longer login (unless in LDAP)
+#    - User data (project memberships) is preserved
+#    - When LDAP user logs in with same username, data is linked
+
+# 6. Map LDAP users to existing accounts (if needed)
+#    - Manual process via API
+#    - Or let users re-login to auto-link

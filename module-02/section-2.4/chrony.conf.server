@@ -1,0 +1,39 @@
+# Chrony Configuration for NTP Server (Stratum 1)
+# File: /etc/chrony/chrony.conf (or /etc/chrony.conf)
+
+# Reference Clock - GPS receiver
+# Adjust to your actual GPS device
+refclock SHM 0 refid GPS precision 1e-1 offset 0.0 delay 0.2
+
+# Alternatively, for NMEA GPS on serial port:
+# refclock NMEA /dev/ttyS0 refid GPS
+
+# If NO GPS available, use local reference (less accurate)
+# Uncomment only if you don't have GPS:
+# local stratum 8
+
+# Allow NTP client access from local network
+allow 10.20.30.0/24
+
+# Serve time even if not synchronized
+# (useful during initial setup)
+local stratum 10
+
+# Logging
+logdir /var/log/chrony
+log measurements statistics tracking
+
+# Drift file
+driftfile /var/lib/chrony/drift
+
+# Make steps in system time if offset is larger than 1 second
+makestep 1.0 3
+
+# Enable kernel synchronization of RTC
+rtcsync
+
+# Increase maximum rate of frequency change
+maxupdateskew 100.0
+
+# Disable command port (security)
+# cmdport 0

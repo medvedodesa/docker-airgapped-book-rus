@@ -1,0 +1,36 @@
+---
+# Master playbook - deploys entire Docker infrastructure
+# File: playbooks/site.yml
+#
+# Usage: ansible-playbook playbooks/site.yml
+
+- name: Display deployment information
+  hosts: all
+  gather_facts: yes
+  
+  tasks:
+    - name: Show deployment info
+      debug:
+        msg: |
+          Deploying to: {{ inventory_hostname }}
+          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          Architecture: {{ ansible_architecture }}
+
+- import_playbook: 01-prepare-hosts.yml
+- import_playbook: 02-install-docker.yml
+- import_playbook: 03-configure-docker.yml
+
+- name: Final verification
+  hosts: docker_hosts
+  tasks:
+    - name: Verify Docker is running
+      systemd:
+        name: docker
+        state: started
+      check_mode: yes
+      register: docker_status
+      failed_when: docker_status.changed
+
+    - name: Display success message
+      debug:
+        msg: "✓ Docker deployment successful on {{ inventory_hostname }}"

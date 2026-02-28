@@ -1,0 +1,25 @@
+---
+# Docker-specific variables
+# File: inventory/production/group_vars/docker_hosts.yml
+
+docker_version: "24.0.7"
+
+# daemon.json configuration
+docker_daemon_config:
+  exec-opts:
+    - "native.cgroupdriver=systemd"
+  log-driver: "local"
+  log-opts:
+    max-size: "50m"
+    max-file: "5"
+    compress: "true"
+  storage-driver: "overlay2"
+  dns: "{{ dns_servers }}"
+  dns-search: "{{ dns_search_domains }}"
+  live-restore: true
+  userland-proxy: false
+  icc: false
+  data-root: "/var/lib/docker"
+
+# Offline bundle location (relative to playbook)
+docker_bundle_path: files/docker-offline-bundle.tar.gz

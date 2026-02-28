@@ -1,0 +1,30 @@
+# Chrony Configuration for NTP Client (Stratum 2)
+# File: /etc/chrony/chrony.conf (or /etc/chrony.conf)
+
+# NTP Servers (internal Stratum 1 servers)
+server ntp1.company.local iburst
+server ntp2.company.local iburst
+server ntp3.company.local iburst
+
+# Drift file
+driftfile /var/lib/chrony/drift
+
+# Make steps in system time if offset is larger than 1 second
+# Only for first 3 updates
+makestep 1.0 3
+
+# Enable kernel synchronization of RTC
+rtcsync
+
+# Logging
+logdir /var/log/chrony
+
+# Allow chronyd to make large steps in time
+# Useful for VMs or systems that were offline
+makestep 10 3
+
+# Ignore stratum in source selection
+stratumweight 0
+
+# Allow time smoothing (slewing)
+# maxslewrate 1000.0

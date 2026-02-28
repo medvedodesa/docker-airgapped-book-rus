@@ -1,0 +1,10 @@
+---
+# Install Docker from offline bundle
+# File: playbooks/02-install-docker.yml
+
+- name: Install Docker
+  hosts: docker_hosts
+  become: yes
+  
+  roles:
+    - docker-install

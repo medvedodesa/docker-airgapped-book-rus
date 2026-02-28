@@ -1,0 +1,145 @@
+# Harbor HA Configuration File
+# Version: 2.10.0
+#
+# This configuration is for High Availability deployment with:
+# - Multiple Harbor nodes (3+)
+# - External PostgreSQL cluster
+# - External Redis Sentinel
+# - Shared S3-compatible storage
+
+# REQUIRED: Virtual hostname (behind load balancer)
+hostname: harbor.company.local
+
+# HTTP (redirects to HTTPS)
+http:
+  port: 80
+
+# HTTPS
+https:
+  port: 443
+  certificate: /data/cert/harbor.cert.pem
+  private_key: /data/cert/harbor.key.pem
+
+# Harbor admin password
+harbor_admin_password: <strong-password-here>
+
+# EXTERNAL DATABASE (REQUIRED for HA)
+external_database:
+  harbor:
+    host: postgres-ha.company.local
+    port: 5432
+    db_name: harbor
+    username: harbor
+    password: <postgres-harbor-password>
+    ssl_mode: disable
+    max_idle_conns: 100
+    max_open_conns: 900
+  
+  notary_signer:
+    host: postgres-ha.company.local
+    port: 5432
+    db_name: notary_signer
+    username: harbor
+    password: <postgres-harbor-password>
+    ssl_mode: disable
+  
+  notary_server:
+    host: postgres-ha.company.local
+    port: 5432
+    db_name: notary_server
+    username: harbor
+    password: <postgres-harbor-password>
+    ssl_mode: disable
+
+# EXTERNAL REDIS (REQUIRED for HA)
+# Using Redis Sentinel for automatic failover
+external_redis:
+  # Sentinel configuration
+  sentinel_master_set: mymaster
+  host: sentinel1.company.local:26379,sentinel2.company.local:26379,sentinel3.company.local:26379
+  password: <redis-password>
+  
+  # Database indexes for different components
+  registry_db_index: 1
+  jobservice_db_index: 2
+  chartmuseum_db_index: 3
+  trivy_db_index: 5
+
+# SHARED STORAGE (REQUIRED for HA)
+# All Harbor nodes must use the same storage backend
+storage_service:
+  s3:
+    accesskey: <s3-access-key>
+    secretkey: <s3-secret-key>
+    region: us-east-1
+    regionendpoint: http://minio.company.local:9000
+    bucket: harbor
+    encrypt: false
+    secure: false
+    v4auth: true
+    chunksize: 5242880
+    storageclass: STANDARD
+
+# DATA VOLUME (local to each node, not for registry data)
+data_volume: /data/harbor
+
+# TRIVY configuration (air-gap)
+trivy:
+  ignore_unfixed: false
+  skip_update: true
+  offline_scan: true
+  insecure: false
+
+# JOB SERVICE
+jobservice:
+  max_job_workers: 10
+
+# LOGGING
+log:
+  level: info
+  local:
+    rotate_count: 50
+    rotate_size: 200M
+    location: /var/log/harbor
+
+# METRIC
+metric:
+  enabled: true
+  port: 9090
+  path: /metrics
+
+# CACHE
+cache:
+  enabled: true
+  expire_hours: 24
+
+# HA DEPLOYMENT NOTES:
+#
+# 1. Prerequisites:
+#    - PostgreSQL HA cluster (Patroni, Stolon, or managed service)
+#    - Redis Sentinel (3+ nodes for quorum)
+#    - S3-compatible storage (MinIO, Ceph RGW)
+#    - Load Balancer (HAProxy, Nginx, F5)
+#
+# 2. Load Balancer Configuration:
+#    - Frontend: harbor.company.local:443
+#    - Backend: harbor1:443, harbor2:443, harbor3:443
+#    - Health check: GET /api/v2.0/health
+#    - Algorithm: round-robin or least-conn
+#
+# 3. Installation on each node:
+#    - Copy identical harbor.yml to all nodes
+#    - Run ./install.sh on each node
+#    - All nodes share: database, redis, storage
+#    - All nodes have: local logs, config
+#
+# 4. Verification:
+#    - Test failover: stop Harbor on node1, verify LB routes to node2/3
+#    - Test database: stop PostgreSQL primary, verify automatic failover
+#    - Test Redis: stop Redis master, verify Sentinel promotes new master
+#    - Test storage: push image via node1, pull via node2
+#
+# 5. Maintenance:
+#    - Updates: rolling update one node at a time
+#    - Backups: backup external database and S3 storage
+#    - Monitoring: monitor all nodes + external services

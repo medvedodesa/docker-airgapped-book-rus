@@ -1,0 +1,155 @@
+# Harbor Production Configuration (Optimized for Air-Gap)
+# Version: 2.10.0
+#
+# This configuration is optimized for production air-gapped environments
+# with focus on performance, security, and reliability.
+
+# NETWORK CONFIGURATION
+hostname: harbor.company.local
+
+# HTTP (only for redirect to HTTPS)
+http:
+  port: 80
+
+# HTTPS (production REQUIRED)
+https:
+  port: 443
+  certificate: /data/cert/harbor.company.local.cert.pem
+  private_key: /data/cert/harbor.company.local.key.pem
+
+# ADMIN PASSWORD
+# CRITICAL: Change this immediately after first login via Web UI
+harbor_admin_password: <CHANGE-ME-STRONG-PASSWORD>
+
+# EXTERNAL DATABASE (recommended for production)
+external_database:
+  harbor:
+    host: postgres.company.local
+    port: 5432
+    db_name: harbor
+    username: harbor
+    password: <POSTGRES-PASSWORD>
+    ssl_mode: disable
+    max_idle_conns: 200
+    max_open_conns: 2000
+  
+  notary_signer:
+    host: postgres.company.local
+    port: 5432
+    db_name: notary_signer
+    username: harbor
+    password: <POSTGRES-PASSWORD>
+    ssl_mode: disable
+  
+  notary_server:
+    host: postgres.company.local
+    port: 5432
+    db_name: notary_server
+    username: harbor
+    password: <POSTGRES-PASSWORD>
+    ssl_mode: disable
+
+# EXTERNAL REDIS (recommended for production)
+external_redis:
+  host: redis.company.local:6379
+  password: <REDIS-PASSWORD>
+  registry_db_index: 1
+  jobservice_db_index: 2
+  chartmuseum_db_index: 3
+  trivy_db_index: 5
+
+# STORAGE BACKEND
+# For HA: Use S3-compatible storage (MinIO, Ceph)
+# For single-node: Comment out this section to use filesystem
+storage_service:
+  s3:
+    accesskey: <MINIO-ACCESS-KEY>
+    secretkey: <MINIO-SECRET-KEY>
+    region: us-east-1
+    regionendpoint: http://minio.company.local:9000
+    bucket: harbor
+    encrypt: false
+    secure: true
+    v4auth: true
+    chunksize: 5242880
+    storageclass: STANDARD
+
+# DATA VOLUME (for logs, config, not registry data in S3 mode)
+data_volume: /data/harbor
+
+# TRIVY CONFIGURATION (Air-Gap Optimized)
+trivy:
+  # CRITICAL for air-gap
+  ignore_unfixed: false
+  skip_update: true
+  offline_scan: true
+  insecure: false
+  github_token: ""
+
+# JOB SERVICE (tuned for medium-large deployment)
+jobservice:
+  max_job_workers: 20
+
+# NOTIFICATION
+notification:
+  webhook_job_max_retry: 3
+
+# LOGGING (production settings)
+log:
+  level: info
+  local:
+    rotate_count: 50
+    rotate_size: 200M
+    location: /var/log/harbor
+
+# METRICS (Prometheus integration)
+metric:
+  enabled: true
+  port: 9090
+  path: /metrics
+
+# CACHE
+cache:
+  enabled: true
+  expire_hours: 24
+
+# QUOTA (enable for resource control)
+quota:
+  per_project_enable: true
+  storage_per_project: 107374182400  # 100 GB per project
+
+# PURGE AUDIT LOG
+# Remove audit logs older than this many days
+purge_audit_log:
+  audit_retention_day: 90
+
+# PRODUCTION NOTES:
+#
+# 1. Security:
+#    - Change ALL default passwords
+#    - Use strong passwords (20+ characters)
+#    - Regularly rotate credentials
+#    - Keep TLS certificates up to date
+#
+# 2. Performance:
+#    - Adjust max_job_workers based on load
+#    - Monitor PostgreSQL connection pool
+#    - Watch Redis memory usage
+#
+# 3. Reliability:
+#    - Use external database and Redis
+#    - Configure S3 for shared storage
+#    - Setup load balancer for HA
+#    - Regular backups of database
+#
+# 4. Monitoring:
+#    - Configure Prometheus scraping on port 9090
+#    - Monitor disk usage on /data/harbor
+#    - Watch PostgreSQL query performance
+#    - Track API response times
+#
+# 5. Air-Gap Specific:
+#    - trivy.skip_update MUST be true
+#    - trivy.offline_scan MUST be true
+#    - Update Trivy DB manually (see Section 3.4)
+#    - No proxy configuration needed

@@ -1,0 +1,38 @@
+---
+# Docker installation role - main tasks
+# File: roles/docker-install/tasks/main.yml
+
+- name: Detect OS family
+  set_fact:
+    os_family: "{{ ansible_os_family | lower }}"
+
+- name: Include OS-specific tasks
+  include_tasks: "{{ os_family }}.yml"
+
+- name: Start and enable Docker
+  systemd:
+    name: docker
+    state: started
+    enabled: yes
+    daemon_reload: yes
+
+- name: Start and enable Containerd
+  systemd:
+    name: containerd
+    state: started
+    enabled: yes
+
+- name: Add ansible user to docker group
+  user:
+    name: "{{ ansible_user }}"
+    groups: docker
+    append: yes
+  when: ansible_user is defined
+
+- name: Wait for Docker to be ready
+  command: docker info
+  register: docker_info
+  until: docker_info.rc == 0
+  retries: 5
+  delay: 3
+  changed_when: false

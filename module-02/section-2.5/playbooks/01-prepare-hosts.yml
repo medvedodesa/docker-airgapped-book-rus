@@ -1,0 +1,45 @@
+---
+# Prepare hosts for Docker installation
+# File: playbooks/01-prepare-hosts.yml
+
+- name: Prepare hosts
+  hosts: docker_hosts
+  become: yes
+  
+  tasks:
+    - name: Update hostname
+      hostname:
+        name: "{{ inventory_hostname }}"
+    
+    - name: Configure /etc/hosts
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ ansible_default_ipv4.address }} {{ inventory_hostname }} {{ inventory_hostname }}.{{ dns_search_domains[0] }}"
+        state: present
+    
+    - name: Install required packages
+      package:
+        name:
+          - python3
+          - tar
+          - gzip
+          - curl
+        state: present
+    
+    - name: Create working directory
+      file:
+        path: /opt/docker-install
+        state: directory
+        mode: '0755'
+    
+    - name: Copy offline bundle
+      copy:
+        src: "{{ docker_bundle_path }}"
+        dest: /opt/docker-install/docker-offline-bundle.tar.gz
+      when: docker_bundle_path is defined
+    
+    - name: Extract bundle
+      unarchive:
+        src: /opt/docker-install/docker-offline-bundle.tar.gz
+        dest: /opt/docker-install/
+        remote_src: yes
