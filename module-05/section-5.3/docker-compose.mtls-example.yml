@@ -1,0 +1,66 @@
+# docker-compose.mtls-example.yml
+# Минимальный пример mTLS между api и PostgreSQL через Vault PKI
+# Сертификаты получаются Vault-агентом и монтируются через общий том
+
+services:
+
+  api:
+    image: harbor.internal/prod/api:1.0.0
+    depends_on:
+      vault-agent:
+        condition: service_healthy
+    environment:
+      - DB_SSLMODE=verify-full
+      - DB_SSLCERT=/app/certs/client.crt
+      - DB_SSLKEY=/app/certs/client.key
+      - DB_SSLROOTCERT=/app/certs/ca.crt
+      - DB_HOST=postgres
+    volumes:
+      - api-certs:/app/certs:ro  # сертификаты от Vault-агента
+    networks:
+      - backend
+    depends_on:
+      - postgres
+      - vault-agent
+
+  vault-agent:
+    image: harbor.internal/infra/vault:1.16.0
+    command: agent -config=/vault-agent/config.hcl
+    environment:
+      - VAULT_ADDR=https://vault.internal:8200
+    volumes:
+      - api-certs:/app/certs
+      - ./vault-agent.hcl:/vault-agent/config.hcl:ro
+    healthcheck:
+      test: ["CMD", "test", "-f", "/app/certs/client.crt"]
+      interval: 10s
+      retries: 12
+      start_period: 30s
+    networks:
+      - backend
+
+  postgres:
+    image: harbor.internal/library/postgres:15-alpine
+    environment:
+      - POSTGRES_DB=appdb
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./pg-certs:/etc/ssl/pg:ro
+      - ./pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+    command: >
+      postgres
+      -c ssl=on
+      -c ssl_cert_file=/etc/ssl/pg/server.crt
+      -c ssl_key_file=/etc/ssl/pg/server.key
+      -c ssl_ca_file=/etc/ssl/pg/ca.crt
+    networks:
+      - backend
+
+volumes:
+  api-certs:
+  pg-data:
+
+networks:
+  backend:
+    driver: bridge
+    internal: true

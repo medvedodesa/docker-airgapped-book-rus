@@ -1,0 +1,85 @@
+# syntax=docker/dockerfile:1
+# Dockerfile.distroless-python — Python-приложение с distroless/python как финальным образом
+# distroless/python: Python + системные библиотеки, нет pip, нет шелла
+#
+# Использование:
+#   docker build \
+#     --build-arg HARBOR_URL=harbor.internal.company.local \
+#     --build-arg NEXUS_URL=http://nexus.internal.company.local:8081 \
+#     -f Dockerfile.distroless-python \
+#     -t harbor.internal.company.local/myapp/app:1.0.0 .
+
+ARG HARBOR_URL=harbor.internal.company.local
+ARG NEXUS_URL=http://nexus.internal.company.local:8081
+ARG PYTHON_VERSION=3.12
+
+# ══════════════════════════════════════════════════════
+# ЭТАП 1: Зависимости — pip в отдельный каталог
+# ══════════════════════════════════════════════════════
+FROM ${HARBOR_URL}/library/python:${PYTHON_VERSION}-slim-bookworm AS deps
+
+ARG NEXUS_URL
+ENV PIP_INDEX_URL=${NEXUS_URL}/repository/pypi-proxy/simple/
+ENV PIP_TRUSTED_HOST=$(echo ${NEXUS_URL} | sed 's|http://||' | cut -d: -f1)
+ENV PIP_NO_CACHE_DIR=1
+
+WORKDIR /install
+
+# Копируем только requirements для кеша pip
+COPY requirements.txt .
+
+# Устанавливаем зависимости в /install/packages — не в системный Python
+RUN --mount=type=secret,id=nexus_password \
+    pip install \
+      --no-cache-dir \
+      --prefix=/install/packages \
+      -r requirements.txt
+
+# ══════════════════════════════════════════════════════
+# ЭТАП 2: Сборка — компиляция .pyc
+# ══════════════════════════════════════════════════════
+FROM ${HARBOR_URL}/library/python:${PYTHON_VERSION}-slim-bookworm AS builder
+
+COPY --from=deps /install/packages /packages
+COPY . /src
+
+# Компилируем Python-файлы в байткод для скорости запуска
+RUN python -m compileall -b /src && \
+    # Удаляем исходники, оставляем только .pyc
+    find /src -name "*.py" -not -name "__main__.py" -delete && \
+    find /src -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+
+# ══════════════════════════════════════════════════════
+# ЭТАП 3: Рантайм — distroless Python
+# ══════════════════════════════════════════════════════
+# distroless/python содержит: Python интерпретатор, glibc, CA-сертификаты
+# НЕ содержит: pip, bash, sh, apt, coreutils
+# Для отладки: тег :debug содержит busybox shell
+FROM ${HARBOR_URL}/gcr.io/distroless/python${PYTHON_VERSION}-debian12 AS runtime
+
+LABEL maintainer="team@company.local" \
+      org.opencontainers.image.title="myapp-app-distroless" \
+      org.opencontainers.image.description="Python-приложение на distroless/python"
+
+# Копируем установленные зависимости и скомпилированный код
+COPY --from=deps    /install/packages /usr/local
+COPY --from=builder /src              /app
+
+WORKDIR /app
+
+# distroless nonroot = UID 65532
+USER nonroot
+
+ENV PYTHONPATH=/usr/local/lib/python/dist-packages:/app
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+EXPOSE 8000
+
+# В distroless нет shell — ENTRYPOINT напрямую
+ENTRYPOINT ["python", "-m", "uvicorn", "main:app", \
+            "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+
+# Healthcheck через Python (нет curl)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]

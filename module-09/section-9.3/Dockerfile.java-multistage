@@ -1,0 +1,93 @@
+# syntax=docker/dockerfile:1
+# Dockerfile.java-multistage — многоэтапная сборка Spring Boot приложения
+# Этап 1: Maven-сборка на JDK
+# Этап 2: Минимальный JRE-образ (distroless или Eclipse Temurin slim)
+#
+# Использование:
+#   docker build \
+#     --build-arg NEXUS_URL=http://nexus.internal.company.local:8081 \
+#     --build-arg HARBOR_URL=harbor.internal.company.local \
+#     -f Dockerfile.java-multistage \
+#     -t harbor.internal.company.local/myapp/api:1.0.0 .
+
+ARG HARBOR_URL=harbor.internal.company.local
+ARG NEXUS_URL=http://nexus.internal.company.local:8081
+
+# ══════════════════════════════════════════════════════
+# ЭТАП 1: Сборка — Maven + JDK
+# ══════════════════════════════════════════════════════
+FROM ${HARBOR_URL}/library/eclipse-temurin:21-jdk-jammy AS builder
+
+ARG NEXUS_URL
+ARG APP_VERSION=0.0.1-SNAPSHOT
+
+WORKDIR /build
+
+# Копируем только дескрипторы зависимостей — кешируем установку зависимостей
+COPY pom.xml .
+COPY .mvn/ .mvn/
+COPY mvnw .
+
+# Устанавливаем зависимости (используем Nexus как зеркало)
+RUN --mount=type=secret,id=nexus_password \
+    ./mvnw dependency:go-offline \
+      -s /dev/stdin \
+      --no-transfer-progress <<'SETTINGS_EOF'
+<settings>
+  <mirrors>
+    <mirror>
+      <id>nexus</id>
+      <url>${NEXUS_URL}/repository/maven-public/</url>
+      <mirrorOf>*</mirrorOf>
+    </mirror>
+  </mirrors>
+</settings>
+SETTINGS_EOF
+
+# Копируем исходный код и собираем JAR
+COPY src/ src/
+RUN ./mvnw package -DskipTests --no-transfer-progress \
+    -Dapp.version=${APP_VERSION}
+
+# Извлекаем слои Spring Boot для оптимизации
+RUN java -Djarmode=layertools \
+    -jar target/*.jar extract --destination target/extracted
+
+# ══════════════════════════════════════════════════════
+# ЭТАП 2: Рантайм — только JRE + JAR
+# ══════════════════════════════════════════════════════
+FROM ${HARBOR_URL}/library/eclipse-temurin:21-jre-jammy AS runtime
+
+# Метаданные образа
+LABEL maintainer="team@company.local" \
+      org.opencontainers.image.title="myapp-api" \
+      org.opencontainers.image.description="Spring Boot приложение" \
+      org.opencontainers.image.base.name="${HARBOR_URL}/library/eclipse-temurin:21-jre-jammy"
+
+# Непривилегированный пользователь
+RUN groupadd --gid 1001 appgroup && \
+    useradd --uid 1001 --gid appgroup --no-create-home appuser
+
+WORKDIR /app
+
+# Копируем слои из этапа сборки (порядок важен: сначала редко меняющиеся)
+COPY --from=builder --chown=appuser:appgroup /build/target/extracted/dependencies/ ./
+COPY --from=builder --chown=appuser:appgroup /build/target/extracted/spring-boot-loader/ ./
+COPY --from=builder --chown=appuser:appgroup /build/target/extracted/snapshot-dependencies/ ./
+COPY --from=builder --chown=appuser:appgroup /build/target/extracted/application/ ./
+
+USER appuser
+
+# Настройки JVM для контейнера
+ENV JAVA_OPTS="-XX:+UseContainerSupport \
+               -XX:MaxRAMPercentage=75.0 \
+               -XX:+ExitOnOutOfMemoryError \
+               -Djava.security.egd=file:/dev/./urandom \
+               -Dspring.backgroundpreinitializer.ignore=true"
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD curl -sf http://localhost:8080/actuator/health || exit 1
+
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS org.springframework.boot.loader.launch.JarLauncher"]

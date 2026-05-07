@@ -1,0 +1,50 @@
+# Базовый образ с КриптоПро CSP для внутренних сервисов
+# Требует: пакеты КриптоПро CSP 5.x для Linux (linux-amd64)
+# Лицензия КриптоПро должна быть установлена отдельно
+FROM harbor.internal.company.local/base/debian:12-slim
+
+# Аргументы сборки
+ARG CRYPTOPRO_PKG=linux-amd64_deb.tgz
+ARG CRYPTOPRO_VERSION=5.0
+
+LABEL org.opencontainers.image.title="CryptoPro CSP Base" \
+      org.opencontainers.image.description="КриптоПро CSP для ГОСТ-криптографии" \
+      org.opencontainers.image.version="${CRYPTOPRO_VERSION}"
+
+# Зависимости (из внутреннего зеркала)
+RUN apt-get update --no-install-recommends && \
+    apt-get install -y --no-install-recommends \
+      lsb-release \
+      libccid \
+      pcscd \
+      libpcsclite1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Установка КриптоПро из локального архива
+COPY ${CRYPTOPRO_PKG} /tmp/
+
+RUN cd /tmp && \
+    tar -xzf ${CRYPTOPRO_PKG} && \
+    cd linux-amd64_deb && \
+    ./install.sh 2>/dev/null && \
+    cd / && \
+    rm -rf /tmp/linux-amd64_deb /tmp/${CRYPTOPRO_PKG} && \
+    # Проверка установки
+    cryptcp -ver 2>/dev/null || true
+
+# Создание непривилегированного пользователя
+RUN groupadd -r cryptouser && useradd -r -g cryptouser cryptouser
+
+# Рабочая директория для ключевых контейнеров
+RUN mkdir -p /var/opt/cprocsp/keys /var/opt/cprocsp/users && \
+    chown -R cryptouser:cryptouser /var/opt/cprocsp/keys
+
+# Конфигурация OpenSSL для ГОСТ
+RUN if [ -f /etc/ssl/openssl.cnf ]; then \
+      sed -i '1s/^/openssl_conf = openssl_def\n\n[openssl_def]\nengines = engine_section\n\n[engine_section]\ngost = gost_section\n\n[gost_section]\nengine_id = gost\ndynamic_path = \/usr\/lib\/ssl\/engines\/libgost.so\ndefault_algorithms = ALL\n\n/' \
+        /etc/ssl/openssl.cnf; \
+    fi
+
+USER cryptouser
+
+CMD ["/bin/bash"]

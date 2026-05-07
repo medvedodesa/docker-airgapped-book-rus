@@ -1,0 +1,93 @@
+# docker-compose.payment-api.yml
+# Сквозной пример Zero Trust: payment-api + SPIRE sidecar + Vault-агент + PostgreSQL
+# Все компоненты работают в изолированной внутренней сети (internal: true)
+
+services:
+
+  payment-api:
+    image: harbor.internal/prod/payment-api:2.1.0
+    depends_on:
+      spire-agent-sidecar:
+        condition: service_healthy
+      vault-agent:
+        condition: service_healthy
+    volumes:
+      - spire-socket:/spire-agent-socket:ro   # Workload API — SVID для mTLS
+      - app-config:/app/config:ro              # секреты от Vault-агента
+      - app-certs:/app/certs:ro               # сертификаты от Vault-агента
+    environment:
+      - SPIFFE_ENDPOINT_SOCKET=unix:///spire-agent-socket/api.sock
+      - DB_HOST=postgres.internal
+      - DB_PORT=5432
+      - DB_SSLMODE=verify-full
+      - DB_SSLCERT=/app/certs/client.crt
+      - DB_SSLKEY=/app/certs/client.key
+      - DB_SSLROOTCERT=/app/certs/ca.crt
+    networks:
+      - app-net
+
+  spire-agent-sidecar:
+    image: harbor.internal/infra/spire-agent:1.9.0
+    volumes:
+      - spire-socket:/spire-agent-socket
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Docker attestor
+    configs:
+      - source: spire-agent-config
+        target: /etc/spire/agent/agent.conf
+    healthcheck:
+      test: ["CMD", "/opt/spire/bin/spire-agent", "api", "fetch", "x509",
+             "-socketPath", "/spire-agent-socket/api.sock"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    networks:
+      - app-net
+
+  vault-agent:
+    image: harbor.internal/infra/vault:1.16.0
+    command: agent -config=/vault-agent/config.hcl
+    environment:
+      - VAULT_ADDR=https://vault.internal:8200
+    volumes:
+      - app-config:/app/config
+      - app-certs:/app/certs
+    configs:
+      - source: vault-agent-config
+        target: /vault-agent/config.hcl
+    healthcheck:
+      test: ["CMD", "test", "-f", "/app/config/db.env"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+    networks:
+      - app-net
+
+  postgres:
+    image: harbor.internal/library/postgres:15-alpine
+    environment:
+      - POSTGRES_DB=payments
+    secrets:
+      - pg_password
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ./postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    networks:
+      - app-net
+
+volumes:
+  spire-socket:
+  app-config:
+  app-certs:
+  pg-data:
+
+networks:
+  app-net:
+    driver: bridge
+    internal: true  # без доступа к внешним сетям
+
+secrets:
+  pg_password:
+    external: true

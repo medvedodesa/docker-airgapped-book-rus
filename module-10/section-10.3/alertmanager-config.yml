@@ -1,0 +1,80 @@
+global:
+  resolve_timeout: 5m
+  smtp_smarthost: 'smtp.internal.company.local:25'
+  smtp_from: 'alertmanager@company.local'
+  smtp_require_tls: false
+
+# Маршрутизация алертов
+route:
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'ops-default'
+
+  routes:
+    # Критические алерты — немедленно
+    - matchers:
+        - severity = critical
+      receiver: 'ops-critical'
+      group_wait: 10s
+      repeat_interval: 1h
+      continue: false
+
+    # Алерты по сертификатам — в отдельный канал
+    - matchers:
+        - alertname =~ "Certificate.*"
+      receiver: 'ops-certs'
+      repeat_interval: 24h
+
+    # Алерты разработки
+    - matchers:
+        - team = dev
+      receiver: 'dev-team'
+      repeat_interval: 8h
+
+receivers:
+  - name: 'ops-default'
+    email_configs:
+      - to: 'ops@company.local'
+        send_resolved: true
+        headers:
+          Subject: '[{{ .Status | toUpper }}] {{ .GroupLabels.alertname }} — {{ .CommonAnnotations.summary }}'
+
+  - name: 'ops-critical'
+    email_configs:
+      - to: 'ops-oncall@company.local'
+        send_resolved: true
+        headers:
+          Subject: '[CRITICAL] {{ .GroupLabels.alertname }} — {{ .CommonAnnotations.summary }}'
+          Priority: 'urgent'
+          X-Priority: '1'
+    # Webhook для внутренней системы оповещения
+    webhook_configs:
+      - url: 'http://incident-api.internal.company.local/webhook/alert'
+        send_resolved: true
+
+  - name: 'ops-certs'
+    email_configs:
+      - to: 'pki-team@company.local'
+        send_resolved: true
+
+  - name: 'dev-team'
+    email_configs:
+      - to: 'dev@company.local'
+        send_resolved: true
+
+inhibit_rules:
+  # Если узел упал — подавить алерты от сервисов на этом узле
+  - source_matchers:
+      - alertname = NodeDown
+    target_matchers:
+      - alertname =~ "Container.*|High.*"
+    equal: ['host']
+
+  # Critical подавляет Warning для того же алерта
+  - source_matchers:
+      - severity = critical
+    target_matchers:
+      - severity = warning
+    equal: ['alertname', 'instance']

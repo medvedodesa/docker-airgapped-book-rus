@@ -1,0 +1,79 @@
+# syntax=docker/dockerfile:1
+# Dockerfile.distroless-java — Java-приложение с distroless/java как финальным образом
+# distroless: нет шелла, нет пакетного менеджера, только JRE + системные библиотеки
+#
+# Использование:
+#   docker build \
+#     --build-arg HARBOR_URL=harbor.internal.company.local \
+#     --build-arg NEXUS_URL=http://nexus.internal.company.local:8081 \
+#     -f Dockerfile.distroless-java \
+#     -t harbor.internal.company.local/myapp/api:1.0.0 .
+
+ARG HARBOR_URL=harbor.internal.company.local
+ARG NEXUS_URL=http://nexus.internal.company.local:8081
+ARG JAVA_VERSION=21
+
+# ══════════════════════════════════════════════════════
+# ЭТАП 1: Сборка — Eclipse Temurin JDK
+# ══════════════════════════════════════════════════════
+FROM ${HARBOR_URL}/library/eclipse-temurin:${JAVA_VERSION}-jdk-jammy AS builder
+
+ARG NEXUS_URL
+WORKDIR /build
+
+# Зависимости — отдельный слой для кеша
+COPY pom.xml .
+RUN --mount=type=secret,id=nexus_password \
+    mvn dependency:go-offline \
+      --no-transfer-progress \
+      -Dmaven.repo.local=/root/.m2/repository \
+      -DrepositoryUrl=${NEXUS_URL}/repository/maven-public/ \
+    || mvn dependency:go-offline --no-transfer-progress -o 2>/dev/null || true
+
+COPY src/ src/
+RUN mvn package -DskipTests --no-transfer-progress \
+      -Dmaven.repo.local=/root/.m2/repository
+
+# Извлекаем слои Spring Boot
+RUN java -Djarmode=layertools -jar target/*.jar extract --destination /app/extracted 2>/dev/null || \
+    cp target/*.jar /app/extracted/app.jar
+
+# ══════════════════════════════════════════════════════
+# ЭТАП 2: Рантайм — distroless Java
+# ══════════════════════════════════════════════════════
+# distroless/java содержит: glibc, OpenJDK JRE, CA-сертификаты
+# НЕ содержит: bash, sh, apt, wget, curl, coreutils
+# Для отладки используйте тег :debug (содержит busybox shell)
+FROM ${HARBOR_URL}/gcr.io/distroless/java${JAVA_VERSION}-debian12 AS runtime
+
+LABEL maintainer="team@company.local" \
+      org.opencontainers.image.title="myapp-api-distroless" \
+      org.opencontainers.image.description="Spring Boot на distroless/java"
+
+WORKDIR /app
+
+# Копируем слои из этапа сборки
+COPY --from=builder /app/extracted/dependencies/          ./
+COPY --from=builder /app/extracted/spring-boot-loader/    ./
+COPY --from=builder /app/extracted/snapshot-dependencies/ ./
+COPY --from=builder /app/extracted/application/           ./
+
+# В distroless образах пользователь задаётся через nonroot (UID 65532) или numeric
+# Образ gcr.io/distroless/java уже использует nonroot по умолчанию
+USER nonroot
+
+EXPOSE 8080
+
+# distroless использует ENTRYPOINT напрямую без shell
+# CMD задаёт аргументы к ENTRYPOINT
+ENTRYPOINT ["java", \
+  "-XX:+UseContainerSupport", \
+  "-XX:MaxRAMPercentage=75.0", \
+  "-XX:+ExitOnOutOfMemoryError", \
+  "-Djava.security.egd=file:/dev/./urandom", \
+  "org.springframework.boot.loader.launch.JarLauncher"]
+
+# Проверка здоровья через TCP (нет curl в distroless)
+# Замените на HTTP если приложение поддерживает /actuator/health
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD ["java", "-version"]

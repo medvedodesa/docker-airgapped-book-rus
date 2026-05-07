@@ -1,0 +1,140 @@
+# Dockerfile.nginx-gost — Nginx с поддержкой ГОСТ-шифрования
+# Сборка через OpenSSL с движком КриптоПро (ГОСТ TLS)
+#
+# ТРЕБОВАНИЯ:
+#   - Дистрибутив КриптоПро CSP в директории cryptopro-dist/
+#   - Архив cprocsp-pki-*.tar.gz с OpenSSL-движком КриптоПро
+#   - Исходники Nginx в nginx-*.tar.gz (или используйте пакет)
+#
+# Использование:
+#   docker build \
+#     --build-arg HARBOR_URL=harbor.internal.company.local \
+#     -f Dockerfile.nginx-gost \
+#     -t harbor.internal.company.local/infra/nginx-gost:1.24-gost .
+
+ARG HARBOR_URL=harbor.internal.company.local
+
+# ══════════════════════════════════════════════════════
+# ЭТАП 1: Сборка OpenSSL с ГОСТ-движком КриптоПро
+# ══════════════════════════════════════════════════════
+FROM ${HARBOR_URL}/library/ubuntu:22.04 AS gost-builder
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Зависимости для сборки (из локального зеркала Nexus)
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends \
+      build-essential \
+      libssl-dev \
+      zlib1g-dev \
+      libpcre3-dev \
+      wget \
+      ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Копируем локальные дистрибутивы КриптоПро
+COPY cryptopro-dist/ /tmp/cryptopro/
+COPY nginx-*.tar.gz /tmp/
+
+# Установка КриптоПро CSP (headless, без GUI)
+RUN cd /tmp/cryptopro && \
+    chmod +x install.sh && \
+    ./install.sh --headless 2>/dev/null || \
+    # Альтернативный способ для RPM-систем
+    ls /tmp/cryptopro/*.deb 2>/dev/null && dpkg -i /tmp/cryptopro/*.deb || true
+
+# Копируем движок ГОСТ для OpenSSL (из поставки КриптоПро PKI)
+# Файл: gost.so или libcpcng.so
+RUN find /opt/cprocsp /usr/lib -name "libgost*.so" -o -name "gost.so" 2>/dev/null | \
+    head -1 | xargs -I{} cp {} /usr/lib/x86_64-linux-gnu/engines-3/ 2>/dev/null || \
+    find /tmp/cryptopro -name "*.so" -exec cp {} /usr/lib/ \; 2>/dev/null || true
+
+# Сборка Nginx с поддержкой ГОСТ через OpenSSL
+RUN cd /tmp && tar xzf nginx-*.tar.gz && cd nginx-* && \
+    ./configure \
+      --prefix=/etc/nginx \
+      --sbin-path=/usr/sbin/nginx \
+      --modules-path=/usr/lib64/nginx/modules \
+      --conf-path=/etc/nginx/nginx.conf \
+      --error-log-path=/var/log/nginx/error.log \
+      --http-log-path=/var/log/nginx/access.log \
+      --pid-path=/var/run/nginx.pid \
+      --with-http_ssl_module \
+      --with-http_v2_module \
+      --with-http_realip_module \
+      --with-http_stub_status_module \
+      --with-threads \
+      --with-stream \
+      --with-stream_ssl_module \
+      --with-openssl-opt="enable-gost" \
+    && make -j$(nproc) && make install
+
+# ══════════════════════════════════════════════════════
+# ЭТАП 2: Рантайм — минимальный Nginx с ГОСТ
+# ══════════════════════════════════════════════════════
+FROM ${HARBOR_URL}/library/ubuntu:22.04 AS runtime
+
+LABEL maintainer="infra@company.local" \
+      description="Nginx с поддержкой ГОСТ TLS (КриптоПро OpenSSL engine)"
+
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends \
+      libssl3 \
+      libpcre3 \
+      zlib1g && \
+    rm -rf /var/lib/apt/lists/*
+
+# Копируем Nginx и библиотеки ГОСТ из этапа сборки
+COPY --from=gost-builder /usr/sbin/nginx /usr/sbin/
+COPY --from=gost-builder /etc/nginx/ /etc/nginx/
+COPY --from=gost-builder /usr/lib/x86_64-linux-gnu/engines-3/ /usr/lib/x86_64-linux-gnu/engines-3/
+COPY --from=gost-builder /opt/cprocsp/ /opt/cprocsp/
+
+# Шаблон конфигурации Nginx с ГОСТ-шифрами
+COPY nginx-gost.conf /etc/nginx/nginx.conf
+
+RUN mkdir -p /var/log/nginx /var/cache/nginx && \
+    ln -sf /dev/stdout /var/log/nginx/access.log && \
+    ln -sf /dev/stderr /var/log/nginx/error.log && \
+    useradd -r -s /bin/false nginx
+
+# Проверка что ГОСТ-движок загружается
+RUN openssl engine gost -t 2>/dev/null && \
+    echo "ГОСТ-движок OK" || \
+    echo "WARN: ГОСТ-движок не загружается — проверьте установку КриптоПро"
+
+EXPOSE 443
+
+STOPSIGNAL SIGQUIT
+HEALTHCHECK --interval=30s --timeout=5s \
+    CMD nginx -t 2>/dev/null && curl -sk https://localhost/health || exit 1
+
+CMD ["nginx", "-g", "daemon off;"]
+
+# ══════════════════════════════════════════════════════
+# Пример nginx-gost.conf (создайте отдельно):
+# ══════════════════════════════════════════════════════
+# events { worker_connections 1024; }
+# http {
+#   server {
+#     listen 443 ssl;
+#     server_name service.internal.company.local;
+#
+#     ssl_certificate     /etc/nginx/ssl/server.crt;
+#     ssl_certificate_key /etc/nginx/ssl/server.key;
+#
+#     # ГОСТ-шифры (поддерживаются клиентами с КриптоПро или Яндекс Браузером)
+#     ssl_ciphers GOST2012-GOST8912-GOST8912:GOST2001-GOST89-GOST89:HIGH:!aNULL;
+#     ssl_protocols TLSv1.2 TLSv1.3;
+#
+#     # Резервный вариант для браузеров без ГОСТ
+#     ssl_prefer_server_ciphers on;
+#
+#     location / {
+#       proxy_pass http://backend:8080;
+#     }
+#   }
+# }

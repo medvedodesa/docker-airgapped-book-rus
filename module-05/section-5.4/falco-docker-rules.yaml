@@ -1,0 +1,139 @@
+# Пользовательские правила Falco для Docker в закрытом контуре.
+# Подключите этот файл в /etc/falco/rules.d/
+
+# --- Списки ---
+
+- list: trusted_containers
+  items: [gitlab-runner, jenkins-agent, trivy-adapter]
+
+- list: allowed_shell_containers
+  items: [gitlab-runner]
+
+- list: sensitive_files
+  items: [/etc/shadow, /etc/sudoers, /root/.ssh/id_rsa,
+          /etc/docker/daemon.json, /var/lib/spire/server/data/keys.json]
+
+- list: docker_processes
+  items: [docker, dockerd, containerd, containerd-shim, runc]
+
+- list: package_managers
+  items: [apt, apt-get, apt-cache, yum, dnf, rpm, dpkg, pip, pip3, npm]
+
+# --- Макросы ---
+
+- macro: container_not_trusted
+  condition: container and not container.name in (trusted_containers)
+
+- macro: not_docker_process
+  condition: not proc.name in (docker_processes)
+
+# --- Правила ---
+
+- rule: Shell в контейнере
+  desc: Интерактивный shell запущен внутри контейнера
+  condition: >
+    spawned_process and
+    container and
+    shell_procs and
+    proc.tty != 0 and
+    container_not_trusted
+  output: >
+    Shell в контейнере
+    (пользователь=%user.name
+     контейнер=%container.name
+     образ=%container.image.repository
+     команда=%proc.cmdline)
+  priority: WARNING
+  tags: [shell, container, insider_threat]
+
+- rule: Несанкционированный доступ к Docker socket
+  desc: Процесс, не являющийся Docker, пытается читать /var/run/docker.sock
+  condition: >
+    open_read and
+    fd.name = /var/run/docker.sock and
+    not_docker_process and
+    not proc.name in (trusted_containers)
+  output: >
+    Несанкционированный доступ к Docker socket
+    (пользователь=%user.name
+     процесс=%proc.name
+     команда=%proc.cmdline
+     контейнер=%container.name)
+  priority: CRITICAL
+  tags: [docker, container_escape, lateral_movement]
+
+- rule: Майнинг криптовалюты
+  desc: Обнаружен процесс майнинга криптовалюты
+  condition: >
+    spawned_process and
+    (proc.name in (xmrig, cryptonight, minerd, cpuminer, cgminer) or
+     proc.cmdline contains "stratum+tcp://" or
+     proc.cmdline contains "pool.minexmr.com" or
+     proc.cmdline contains "--donate-level")
+  output: >
+    Майнинг криптовалюты
+    (процесс=%proc.name
+     команда=%proc.cmdline
+     пользователь=%user.name
+     контейнер=%container.name)
+  priority: CRITICAL
+  tags: [cryptomining, malware]
+
+- rule: Чтение чувствительных файлов
+  desc: Обнаружено чтение файлов с конфиденциальными данными
+  condition: >
+    open_read and
+    fd.name in (sensitive_files)
+  output: >
+    Чтение чувствительного файла
+    (файл=%fd.name
+     процесс=%proc.name
+     пользователь=%user.name
+     контейнер=%container.name)
+  priority: CRITICAL
+  tags: [filesystem, credentials, insider_threat]
+
+- rule: Менеджер пакетов в контейнере
+  desc: Запуск менеджера пакетов внутри контейнера
+  condition: >
+    spawned_process and
+    container and
+    proc.name in (package_managers) and
+    container_not_trusted
+  output: >
+    Менеджер пакетов в контейнере
+    (менеджер=%proc.name
+     контейнер=%container.name
+     образ=%container.image.repository)
+  priority: WARNING
+  tags: [package_management, container, supply_chain]
+
+- rule: Попытка повышения привилегий
+  desc: Обнаружена попытка получить дополнительные привилегии
+  condition: >
+    spawned_process and
+    container and
+    (proc.name = sudo or
+     proc.name = su or
+     proc.name = newgrp) and
+    container_not_trusted
+  output: >
+    Попытка повышения привилегий в контейнере
+    (процесс=%proc.name
+     пользователь=%user.name
+     контейнер=%container.name)
+  priority: CRITICAL
+  tags: [privilege_escalation, container]
+
+- rule: Изменение конфигурации Docker
+  desc: Файл конфигурации Docker изменён
+  condition: >
+    write_buf and
+    fd.name in (/etc/docker/daemon.json, /etc/docker/certs)
+  output: >
+    Конфигурация Docker изменена
+    (файл=%fd.name
+     процесс=%proc.name
+     пользователь=%user.name)
+  priority: HIGH
+  tags: [docker, configuration, tampering]

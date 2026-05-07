@@ -1,0 +1,147 @@
+# .dockerignore — шаблон для закрытого контура
+# Исключает файлы, которые не должны попадать в контекст сборки Docker
+# Копируйте в корень проекта и адаптируйте под свой стек
+
+# ── Система контроля версий ────────────────────────────────────────────────
+.git
+.gitignore
+.gitattributes
+.github
+.gitlab-ci.yml
+.gitlab
+
+# ── Документация и тексты ─────────────────────────────────────────────────
+README.md
+README.rst
+CHANGELOG*
+CONTRIBUTING*
+LICENSE*
+docs/
+*.md
+*.rst
+*.txt
+!requirements.txt
+!constraints.txt
+
+# ── Тесты и CI ────────────────────────────────────────────────────────────
+tests/
+test/
+spec/
+__tests__/
+*.test.*
+*.spec.*
+coverage/
+.coverage
+htmlcov/
+.pytest_cache/
+tox.ini
+.tox/
+Makefile
+
+# ── Секреты и конфигурация среды ──────────────────────────────────────────
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+vault-tokens/
+.vault-token
+
+# ── IDE и редакторы ───────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# ── Временные файлы сборки ────────────────────────────────────────────────
+*.log
+*.tmp
+tmp/
+temp/
+.cache/
+
+# ── Java / Maven / Gradle ─────────────────────────────────────────────────
+target/
+*.class
+*.jar
+*.war
+*.ear
+.gradle/
+build/
+out/
+.mvn/
+# НЕ исключаем: pom.xml, build.gradle (нужны для сборки)
+
+# ── Python ────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+.eggs/
+.venv/
+venv/
+env/
+.Python
+pip-wheel-metadata/
+# НЕ исключаем: requirements.txt, setup.py, pyproject.toml
+
+# ── Node.js ───────────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm/
+.yarn/
+dist/
+.next/
+.nuxt/
+# НЕ исключаем: package.json, package-lock.json, yarn.lock
+
+# ── Go ────────────────────────────────────────────────────────────────────
+vendor/
+# НЕ исключаем: go.mod, go.sum
+
+# ── Docker ────────────────────────────────────────────────────────────────
+# Исключаем другие Dockerfile-ы чтобы не путать контекст
+Dockerfile.*
+!Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# ── Данные и большие файлы ────────────────────────────────────────────────
+*.sql
+*.dump
+*.bak
+*.backup
+data/
+dumps/
+uploads/
+*.tar
+*.tar.gz
+*.zip
+*.gz
+
+# ── Terraform / Ansible / IaC ─────────────────────────────────────────────
+*.tfstate
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+inventory/
+group_vars/
+host_vars/
+
+# ── Отчёты сканирования ────────────────────────────────────────────────────
+trivy-report*.json
+trivy-report*.txt
+sbom-*.json

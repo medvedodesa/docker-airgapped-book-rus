@@ -1,0 +1,121 @@
+groups:
+  - name: docker.infrastructure
+    interval: 30s
+    rules:
+      # Узел недоступен
+      - alert: NodeDown
+        expr: up{job="node"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: ops
+        annotations:
+          summary: "Узел {{ $labels.host }} недоступен"
+          description: "Node exporter не отвечает более 2 минут. Хост: {{ $labels.host }}, env: {{ $labels.env }}"
+          runbook: "https://wiki.internal/runbooks/node-down"
+
+      # Высокая нагрузка CPU
+      - alert: HighCPULoad
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 10m
+        labels:
+          severity: warning
+          team: ops
+        annotations:
+          summary: "Высокая нагрузка CPU: {{ $labels.instance }}"
+          description: "CPU загружен на {{ $value | printf \"%.1f\" }}% последние 10 минут"
+
+      # Мало свободной памяти
+      - alert: LowMemory
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100 < 10
+        for: 5m
+        labels:
+          severity: warning
+          team: ops
+        annotations:
+          summary: "Мало памяти: {{ $labels.instance }}"
+          description: "Свободно менее 10% RAM ({{ $value | printf \"%.1f\" }}%)"
+
+      # Диск заполнен
+      - alert: DiskSpaceLow
+        expr: node_filesystem_avail_bytes{mountpoint="/",fstype!="tmpfs"} / node_filesystem_size_bytes{mountpoint="/"} * 100 < 15
+        for: 5m
+        labels:
+          severity: warning
+          team: ops
+        annotations:
+          summary: "Мало места на диске: {{ $labels.instance }}"
+          description: "Свободно менее 15% на {{ $labels.mountpoint }} ({{ $value | printf \"%.1f\" }}%)"
+
+      - alert: DiskSpaceCritical
+        expr: node_filesystem_avail_bytes{mountpoint="/",fstype!="tmpfs"} / node_filesystem_size_bytes{mountpoint="/"} * 100 < 5
+        for: 2m
+        labels:
+          severity: critical
+          team: ops
+        annotations:
+          summary: "Критически мало места: {{ $labels.instance }}"
+          description: "Свободно менее 5% на {{ $labels.mountpoint }}"
+
+  - name: docker.containers
+    interval: 30s
+    rules:
+      # Контейнер перезапускается
+      - alert: ContainerRestartingFrequently
+        expr: rate(container_start_time_seconds{container!=""}[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          team: dev
+        annotations:
+          summary: "Контейнер часто перезапускается: {{ $labels.name }}"
+          description: "Контейнер {{ $labels.name }} перезапускался в последние 15 минут"
+
+      # Высокое потребление памяти контейнером
+      - alert: ContainerHighMemory
+        expr: container_memory_usage_bytes{container!=""} / container_spec_memory_limit_bytes{container!=""} * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+          team: dev
+        annotations:
+          summary: "Контейнер {{ $labels.name }} использует >90% лимита памяти"
+          description: "{{ $value | printf \"%.1f\" }}% от лимита памяти"
+
+  - name: docker.harbor
+    interval: 60s
+    rules:
+      # Harbor недоступен
+      - alert: HarborDown
+        expr: up{job="harbor"} == 0
+        for: 3m
+        labels:
+          severity: critical
+          team: ops
+        annotations:
+          summary: "Harbor Registry недоступен"
+          description: "Harbor не отвечает более 3 минут"
+
+  - name: docker.certificates
+    interval: 300s
+    rules:
+      # Скоро истекает сертификат
+      - alert: CertificateExpiringSoon
+        expr: (probe_ssl_earliest_cert_expiry - time()) / 86400 < 30
+        for: 1h
+        labels:
+          severity: warning
+          team: ops
+        annotations:
+          summary: "Истекает сертификат: {{ $labels.instance }}"
+          description: "Сертификат истекает через {{ $value | printf \"%.0f\" }} дней"
+
+      - alert: CertificateExpiryCritical
+        expr: (probe_ssl_earliest_cert_expiry - time()) / 86400 < 7
+        for: 1h
+        labels:
+          severity: critical
+          team: ops
+        annotations:
+          summary: "Критично: сертификат истекает через {{ $value | printf \"%.0f\" }} дней"
+          description: "Требуется немедленное обновление: {{ $labels.instance }}"

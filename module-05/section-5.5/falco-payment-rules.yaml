@@ -1,0 +1,48 @@
+# falco-payment-rules.yaml
+# Правила Falco для мониторинга Zero Trust: payment-api → PostgreSQL
+# Подключите через falco.yaml: rules_file: /etc/falco/rules.d/falco-payment-rules.yaml
+
+# Оповещение: любой контейнер кроме payment-api соединяется с PostgreSQL
+- rule: Unauthorized connection to payment database
+  desc: Соединение с payment DB от неавторизованного контейнера
+  condition: >
+    evt.type = connect and
+    fd.sport = 5432 and
+    not container.image.repository = "harbor.internal/prod/payment-api" and
+    container.id != host and
+    fd.connected = true
+  output: >
+    Неавторизованное соединение с payment DB
+    (контейнер=%container.name образ=%container.image.repository
+     IP-источника=%fd.cip порт=%fd.sport пользователь=%user.name)
+  priority: CRITICAL
+  tags: [database, zero-trust, payment, network]
+
+# Оповещение: payment-api соединяется не с PostgreSQL и не с Vault
+- rule: Payment API connecting to unexpected host
+  desc: payment-api устанавливает соединение с непредусмотренным хостом
+  condition: >
+    evt.type = connect and
+    container.image.repository = "harbor.internal/prod/payment-api" and
+    fd.connected = true and
+    not fd.sport in (5432, 8200, 443) and
+    not fd.sip in ("127.0.0.1")
+  output: >
+    payment-api соединяется с неожиданным хостом
+    (контейнер=%container.name цель=%fd.sip:%fd.sport)
+  priority: WARNING
+  tags: [network, zero-trust, payment]
+
+# Информационное: успешное авторизованное соединение (для аудита)
+- rule: Payment API authorized connection
+  desc: payment-api успешно соединился с PostgreSQL (аудит-запись)
+  condition: >
+    evt.type = connect and
+    container.image.repository = "harbor.internal/prod/payment-api" and
+    fd.sport = 5432 and
+    fd.connected = true
+  output: >
+    Авторизованное соединение payment-api → PostgreSQL
+    (контейнер=%container.name цель=%fd.sip:%fd.sport)
+  priority: DEBUG
+  tags: [database, zero-trust, payment, audit]
